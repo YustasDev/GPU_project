@@ -1,14 +1,16 @@
 import cv2
 import numpy as np
 import time
-
+import pandas as pd
 
 
 if __name__ == "__main__":
+    # прочитаем файл с растровым изображением и преобразуем его в оттенки серого
+    # (чёрно-белое изображение). Результат сохраним в переменную image как двухмерный массив NumPy (высота и ширина).
     image = cv2.imread('test1.jpg', cv2.IMREAD_GRAYSCALE)
     
     if image is not None:
-        import pandas as pd
+
         # Для отображения выберем небольшой фрагмент (например, 10x10 пикселей из начала, т.е. из верхнего левого угла изображения), 
         # чтобы не загромождать консоль
         h, w = image.shape
