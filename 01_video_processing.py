@@ -23,7 +23,7 @@ def process_video():
     print(f"Video info: {width}x{height} @ {fps} FPS. Total frames: {total_frames}")
 
     # Настраиваем "Писатель" (Writer) для сохранения результата
-    # Codec 'mp4v' обычно работает везде. Для веба лучше 'avc1' (h.264), но требует openh264
+    # Codec 'mp4v' обычно работает везде. Для веба лучше 'avc1' (h.264), но требует OpenH264
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(OUTPUT_VIDEO, fourcc, fps, (width, height))
 
