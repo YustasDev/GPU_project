@@ -6,31 +6,31 @@ from videostream import FileVideoStream  # Импортируем наш кла�
 
 # НАСТРОЙКА ИСТОЧНИКА
 # Вариант А: Путь к файлу (например, "traffic.mp4")
-# Вариант Б: Индекс устройства (0 - встроенная веб-камера, 1 - USB-камера)
+# Вариант Б: Индекс устройства (как правило: 0 - встроенная веб-камера, 1 - USB-камера)
 INPUT_SOURCE = 0  # Попробуйте изменить на "traffic.mp4", чтобы увидеть разницу
 OUTPUT_VIDEO = "output_fast.mp4"
 
-stop_event = threading.Event()
+stop_event = threading.Event()   # определяем флаг прерывания процесса
 
 def signal_handler(signum, frame):
     """Обработчик сигнала для прерывания"""
     print("\n[ВНИМАНИЕ] Процесс прерван пользователем (Ctrl+C).")
-    stop_event.set()
+    stop_event.set()  # устанавливаем флаг прерывания
 
 
 def process_video_fast():
     print(f"[INFO] Запуск захвата видео из источника: {INPUT_SOURCE}")
 
-    # 1. Устанавливаем обработчик сигнала
+    # Устанавливаем обработчик сигнала
     signal.signal(signal.SIGINT, signal_handler)
 
-    # 1. Запускаем многопоточный ридер
+    # Запускаем многопоточный ридер
     fvs = FileVideoStream(INPUT_SOURCE).start()
 
     # Даем потоку 1 секунду на "прогрев" камеры и заполнение буфера
     time.sleep(1.0)
 
-    # 2. Получаем метаданные видео напрямую из оригинального объекта stream
+    # Получаем метаданные видео напрямую из оригинального объекта stream
     width = int(fvs.stream.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(fvs.stream.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = fvs.stream.get(cv2.CAP_PROP_FPS)
@@ -42,7 +42,7 @@ def process_video_fast():
 
     print(f"[INFO] Разрешение потока: {width}x{height} @ {fps} FPS.")
 
-    # 3. Настраиваем "Писатель" (VideoWriter)
+    # Настраиваем "Писатель" (VideoWriter)
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(OUTPUT_VIDEO, fourcc, fps, (width, height))
 
@@ -56,7 +56,7 @@ def process_video_fast():
     print("[INFO] Начинаем обработку. Нажмите Ctrl+C в терминале для экстренной остановки.")
 
     try:
-        while not stop_event.is_set():
+        while not stop_event.is_set():   # проверяем, установлен ли флаг прерывания
             # Если очередь пуста, а поток завершил чтение (конец файла) — выходим
             if not fvs.more() and fvs.stopped:
                 print("\n[INFO] Видеофайл закончился.")
