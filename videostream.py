@@ -49,10 +49,3 @@ class FileVideoStream:
     def stop(self):
         self.stopped = True
         self.stream.release()
-
-        # Очистка очереди
-        while not self.Q.empty():
-            try:
-                self.Q.get_nowait()
-            except Empty:
-                break
