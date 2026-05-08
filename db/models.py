@@ -1,7 +1,7 @@
 from sqlalchemy import String, Float, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime
-from database import Base
+from db.database import Base # <-- Обратите внимание: импорт теперь из db.database
 
 class Detection(Base):
     __tablename__ = "detections"  # Имя таблицы в PostgreSQL
