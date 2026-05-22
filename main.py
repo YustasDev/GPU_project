@@ -1,4 +1,5 @@
 # main.py
+import argparse  # для CLI-флага --source
 import logging  # для настройки root-логгера и единого формата сообщений
 import time  # для пауз главного цикла и стартового grace-периода
 from pathlib import Path  # абсолютные пути относительно расположения этого файла
@@ -12,10 +13,12 @@ from core.streamer import VideoStreamer  # поток-чтение кадров 
 # === Конфигурация ===
 
 PROJECT_DIR = Path(__file__).resolve().parent  # корень проекта; стабилен независимо от CWD
-MODEL_PATH = PROJECT_DIR / "runs" / "detect" / "ai_runs" / "cow_learning" / "weights" / "best.pt"  # обученные веса cow+person
+MODEL_PATH = PROJECT_DIR / "best.pt"  # 2-классовый чекпоинт (person+car) с Roboflow Universe
 SAVE_DIR = PROJECT_DIR / "data" / "saved_events"  # каталог для JPEG-скриншотов событий
-VIDEO_SOURCE = 0  # 0 = веб-камера; для теста можно подставить путь к .mp4 или RTSP URL
-TARGET_CLASSES = [0, 1]  # 0=cow, 1=person по data.yaml в cow_dataset (см. CLAUDE.md)
+# Порядок классов в скачанной модели может быть любым. После старта смотрите
+# первую строку лога "Классы модели: ..." и подправьте список, если, например,
+# в вашей модели 0=car, 1=person.
+TARGET_CLASSES = [0, 1]
 FRAME_QUEUE_MAX = 30  # ~1 секунда буфера кадров на 30 fps
 EVENT_QUEUE_MAX = 100  # запас событий на случай задержек БД
 STARTUP_GRACE = 3.0  # сколько ждём после start() до проверки is_alive() (DB-схема, загрузка YOLO)
@@ -26,6 +29,36 @@ STATUS_INTERVAL = 5.0  # период статусных строк с разм�
 
 
 logger = logging.getLogger(__name__)  # модульный логгер main для статуса и shutdown-сообщений
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Smart Observer — детекция person и car в видеопотоке.",
+    )
+    parser.add_argument(
+        "--source",
+        default="0",
+        help=(
+            "Источник видео: индекс веб-камеры (0, 1, ...), путь к видеофайлу "
+            "или RTSP/HTTP URL. По умолчанию '0' (первая веб-камера)."
+        ),
+    )
+    return parser.parse_args()
+
+
+def resolve_source(value: str) -> int | str | None:
+    # Цифровое значение — индекс веб-камеры (cv2.VideoCapture принимает int)
+    if value.isdigit():
+        return int(value)
+    # Сетевые источники передаём как строку, файловой проверки тут не делаем
+    if value.startswith(("rtsp://", "http://", "https://")):
+        return value
+    # Иначе считаем, что это путь к локальному файлу — валидируем
+    path = Path(value)
+    if path.is_file():
+        return str(path)
+    logger.error("Файл источника не найден: %s", value)
+    return None
 
 
 def configure_logging() -> None:
@@ -59,10 +92,15 @@ def graceful_shutdown(streamer: VideoStreamer, detector: AIDetector, db_logger: 
 
 def main() -> int:
     configure_logging()  # ПЕРВЫМ ДЕЛОМ — иначе нижние logger.info ничего не выведут
+    args = parse_args()  # читаем CLI до запуска потоков
+    source = resolve_source(args.source)  # int | str | None
+    if source is None:
+        return 1  # ошибка уже залогирована в resolve_source
+
     logger.info("=== Запуск системы Smart Observer ===")  # видимый стартовый маркер
     logger.info("Модель: %s", MODEL_PATH)  # явно фиксируем, какие веса используем
-    logger.info("Источник видео: %s", VIDEO_SOURCE)  # источник
-    logger.info("Целевые классы: %s (0=cow, 1=person)", TARGET_CLASSES)  # расшифровка id
+    logger.info("Источник видео: %s", source)  # тип int (вебка) или str (файл/URL)
+    logger.info("Целевые классы: %s", TARGET_CLASSES)  # имена будут видны из лога модели
 
     if not MODEL_PATH.is_file():  # быстрый предполётный чек: веса должны существовать
         logger.error("Файл весов не найден: %s", MODEL_PATH)  # понятное сообщение оператору
@@ -73,7 +111,7 @@ def main() -> int:
     event_queue: Queue = Queue(maxsize=EVENT_QUEUE_MAX)  # детектор → логгер
 
     # Воркеры; конструкторы лёгкие — реальная работа в .run() после .start()
-    streamer = VideoStreamer(source=VIDEO_SOURCE, frame_queue=frame_queue)
+    streamer = VideoStreamer(source=source, frame_queue=frame_queue)
     detector = AIDetector(
         model_path=str(MODEL_PATH),  # AIDetector принимает строку (передаётся в YOLO())
         frame_queue=frame_queue,  # откуда брать кадры

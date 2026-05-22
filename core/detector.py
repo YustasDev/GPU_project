@@ -51,6 +51,7 @@ class AIDetector(threading.Thread):  # поток: потребитель кад
         try:
             model = YOLO(self.model_path)  # загружаем веса (Ultralytics сам подкачает при необходимости)
             class_names = model.names  # сопоставление class_id -> имя класса для подписи и события
+            logger.info("Классы модели: %s", model.names)  # пользователь сверит TARGET_CLASSES в main.py
             logger.info("Модель готова к инференсу.")  # сообщаем, что готовы потреблять кадры
         except Exception:  # ошибка загрузки модели (нет файла, некорректные веса, нет CUDA и т.п.)
             logger.exception("Не удалось загрузить модель %s", self.model_path)  # лог со стектрейсом
