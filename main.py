@@ -15,6 +15,7 @@ from core.streamer import VideoStreamer  # поток-чтение кадров 
 PROJECT_DIR = Path(__file__).resolve().parent  # корень проекта; стабилен независимо от CWD
 MODEL_PATH = PROJECT_DIR / "best.pt"  # 2-классовый чекпоинт (person+car) с Roboflow Universe
 SAVE_DIR = PROJECT_DIR / "data" / "saved_events"  # каталог для JPEG-скриншотов событий
+LOG_DIR = PROJECT_DIR / "logs"  # каталог для файловых логов (info.log / warning.log / error.log)
 # Порядок классов в скачанной модели может быть любым. После старта смотрите
 # первую строку лога "Классы модели: ..." и подправьте список, если, например,
 # в вашей модели 0=car, 1=person.
@@ -65,9 +66,31 @@ def configure_logging() -> None:
     # ОБЯЗАТЕЛЬНО вызывать в самом начале main(): без basicConfig у root-логгера
     # уровень WARNING и нет handler — все logger.info из streamer/detector/logger
     # тихо пропадут, и отлаживать систему станет невозможно.
+    LOG_DIR.mkdir(parents=True, exist_ok=True)  # каталог под файлы логов; idempotent
+
+    fmt = "%(asctime)s %(levelname)-7s %(name)s | %(message)s"  # один формат для всех handler'ов
+
+    def _level_file(level: int, name: str, *, or_higher: bool = False) -> logging.FileHandler:
+        # Файл-handler: по умолчанию пропускает ТОЛЬКО свой уровень (строгое равенство),
+        # чтобы info.log/warning.log оставались моноуровневыми. Для error.log используется
+        # or_higher=True — он должен также собирать CRITICAL (более высокий уровень).
+        h = logging.FileHandler(LOG_DIR / f"{name}.log", encoding="utf-8")
+        h.setLevel(level)  # отсекает всё ниже своего уровня ещё до фильтра
+        if or_higher:
+            h.addFilter(lambda r, lv=level: r.levelno >= lv)  # ERROR + CRITICAL
+        else:
+            h.addFilter(lambda r, lv=level: r.levelno == lv)  # ровно этот уровень
+        return h
+
     logging.basicConfig(
         level=logging.INFO,  # видеть «Сохранено: cow ...», «Загрузка модели...» и т.п.
-        format="%(asctime)s %(levelname)-7s %(name)s | %(message)s",  # время + уровень + имя модуля + текст
+        format=fmt,
+        handlers=[
+            logging.StreamHandler(),                               # stderr — как было раньше
+            _level_file(logging.INFO, "info"),                     # logs/info.log    — только INFO
+            _level_file(logging.WARNING, "warning"),               # logs/warning.log — только WARNING
+            _level_file(logging.ERROR, "error", or_higher=True),   # logs/error.log   — ERROR + CRITICAL
+        ],
     )
 
 
