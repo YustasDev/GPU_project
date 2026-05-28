@@ -1,0 +1,58 @@
+# api/main_api.py
+from fastapi import FastAPI, Request, Depends  # ядро фреймворка + Request (нужен Jinja2) + Depends (DI для get_db)
+from fastapi.staticfiles import StaticFiles  # отдача статических JPEG из data/saved_events
+from fastapi.templating import Jinja2Templates  # рендер index.html с подстановкой событий из БД
+from sqlalchemy.orm import Session  # тип сессии БД — нужен только для аннотации параметров эндпоинтов
+import os
+import sys
+from pathlib import Path
+
+# Корень проекта вычисляем от расположения этого файла — независимо от CWD,
+# чтобы uvicorn можно было запускать из любой директории (а не только из корня репо).
+PROJECT_DIR = Path(__file__).resolve().parent.parent  # ../.. от api/main_api.py
+SAVED_EVENTS_DIR = PROJECT_DIR / "data" / "saved_events"  # тот же каталог, куда пишет core/logger.py
+TEMPLATES_DIR = PROJECT_DIR / "api" / "templates"  # каталог Jinja2-шаблонов рядом с этим модулем
+
+# sys.path.append нужен, чтобы импорты `from db...` работали при запуске `uvicorn api.main_api:app` —
+# uvicorn кладёт в sys.path только пакет api, а корень проекта (где лежит db/) — нет.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from db.database import SessionLocal  # фабрика сессий БД (см. db/database.py)
+from db.models import Detection  # ORM-модель таблицы detections; строки в неё пишет core/logger.py
+
+app = FastAPI(title="Smart Observer API")  # экземпляр приложения; uvicorn находит его по имени `app`
+
+# Раздача JPEG-скриншотов. Каждое событие из core/logger.py создаёт файл в SAVED_EVENTS_DIR;
+# этот mount превращает их в URL вида /images/<filename> для тега <img> в шаблоне.
+SAVED_EVENTS_DIR.mkdir(parents=True, exist_ok=True)  # подстраховка: каталог обычно уже создан DBLogger
+app.mount("/images", StaticFiles(directory=str(SAVED_EVENTS_DIR)), name="images")  # name="images" — для url_for, если понадобится
+
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))  # одна точка рендера шаблонов на всё приложение
+
+
+# FastAPI Dependency: открываем сессию БД на каждый запрос и гарантированно закрываем.
+# Через generator + try/finally close() сработает даже при исключении в хендлере.
+def get_db():
+    db = SessionLocal()  # отдельная сессия на каждый HTTP-запрос — без shared state между запросами
+    try:
+        yield db  # отдаём сессию хендлеру; всё после yield выполнится уже после возврата ответа
+    finally:
+        db.close()  # finally — close даже при исключении внутри хендлера (иначе утечка коннектов)
+
+
+# JSON-эндпоинт для машинных клиентов (curl, скрипты, fetch с фронта).
+# По умолчанию отдаёт 10 свежих событий; limit меняется через query string: /api/events?limit=50.
+@app.get("/api/events")
+async def get_events_json(limit: int = 10, db: Session = Depends(get_db)):
+    # SELECT * FROM detections ORDER BY timestamp DESC LIMIT :limit — новейшие сверху
+    events = db.query(Detection).order_by(Detection.timestamp.desc()).limit(limit).all()
+    return events  # FastAPI сам сериализует ORM-объекты в JSON через pydantic
+
+
+# Главная страница дашборда — HTML с Bootstrap-сеткой карточек.
+# Лимит 20 захардкожен; фильтры/пагинация добавятся позже, если понадобятся.
+@app.get("/")
+async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
+    events = db.query(Detection).order_by(Detection.timestamp.desc()).limit(20).all()  # тот же запрос, что и в /api/events, но limit=20
+    # request обязателен в context для Jinja2Templates — внутри шаблона он нужен Starlette для url_for и т.п.
+    return templates.TemplateResponse("index.html", {"request": request, "events": events})
