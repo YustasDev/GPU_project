@@ -7,8 +7,8 @@ import os
 import sys
 from pathlib import Path
 
-# Корень проекта вычисляем от расположения этого файла — независимо от CWD,
-# чтобы uvicorn можно было запускать из любой директории (а не только из корня репо).
+# Корень проекта вычисляем от расположения этого файла — независимо от текущей рабочей директории
+# чтобы uvicorn можно было запускать из любой директории
 PROJECT_DIR = Path(__file__).resolve().parent.parent  # ../.. от api/main_api.py
 SAVED_EVENTS_DIR = PROJECT_DIR / "data" / "saved_events"  # тот же каталог, куда пишет core/logger.py
 TEMPLATES_DIR = PROJECT_DIR / "api" / "templates"  # каталог Jinja2-шаблонов рядом с этим модулем

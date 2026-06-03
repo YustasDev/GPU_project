@@ -1,0 +1,55 @@
+services:
+  postgres:
+    # Образ PostgreSQL версии 16
+    # Фиксируйте версии образов (postgres:16, а не postgres:latest). Обновление мажорной версии базы данных может сломать схему данных.
+    image: postgres:16
+    
+    # Имя контейнера (чтобы легко обращаться через docker exec)
+    container_name: postgres_db
+    network_mode: host 
+    
+    # Переменные окружения для настройки БД
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}            # Имя суперпользователя
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}    # Пароль суперпользователя
+      POSTGRES_DB: ${POSTGRES_DB}                # Имя базы данных для создания при старте
+      PGDATA: /var/lib/postgresql/data/pgdata    # Путь к данным внутри контейнера 
+    
+    # Публикация портов (хост:контейнер)
+    #ports:
+    #  - "5432:5432"
+    
+    # Тома для сохранения данных (персистентность)
+    volumes:
+      # Именованный том - данные сохранятся после удаления контейнера
+      - postgres_data:/var/lib/postgresql/data
+      # Опционально: монтирование скриптов инициализации
+      - ./init:/docker-entrypoint-initdb.d:ro
+    
+    # Проверка здоровья (health check)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser -d mydatabase"]
+      interval: 10s      # Проверка каждые 10 секунд
+      timeout: 5s        # Таймаут проверки
+      retries: 5         # Количество попыток перед пометкой "unhealthy"
+      start_period: 10s  # Время на запуск перед началом проверок
+    
+    # Политика перезапуска
+    restart: unless-stopped
+    
+    # Ограничение ресурсов (опционально, для продакшена)
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+
+# Объявление именованных томов
+volumes:
+  postgres_data:
+    driver: local  # Локальный драйвер хранения (по умолчанию)
+
+# Объявление сетей (опционально, по умолчанию создаётся сеть автоматически)
+networks:
+  default:
+    driver: bridge
