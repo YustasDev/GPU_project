@@ -8,7 +8,7 @@ DATABASE_URL = "postgresql+psycopg2://myuser:mypassword@localhost:5432/mydatabas
 
 # Создаем "Двигатель" (Engine) - точку входа в БД
 # echo=False скрывает сырые SQL запросы из консоли. Для дебага можно поставить True.
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(DATABASE_URL, echo=False)
 
 # SessionLocal - это фабрика сессий. Сессия - это "разговор" с базой данных (транзакция)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

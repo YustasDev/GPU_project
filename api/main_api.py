@@ -3,6 +3,8 @@ from fastapi import FastAPI, Request, Depends  # ядро фреймворка +
 from fastapi.staticfiles import StaticFiles  # отдача статических JPEG из data/saved_events
 from fastapi.templating import Jinja2Templates  # рендер index.html с подстановкой событий из БД
 from sqlalchemy.orm import Session  # тип сессии БД — нужен только для аннотации параметров эндпоинтов
+from pydantic import BaseModel, ConfigDict  # схема ответа EventOut для /api/events (Swagger покажет структуру JSON)
+from datetime import datetime  # тип поля timestamp в схеме EventOut
 import os
 import sys
 from pathlib import Path
@@ -19,6 +21,21 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from db.database import SessionLocal  # фабрика сессий БД (см. db/database.py)
 from db.models import Detection  # ORM-модель таблицы detections; строки в неё пишет core/logger.py
+
+
+# Pydantic-схема ответа для /api/events. from_attributes=True разрешает Pydantic читать поля
+# прямо из ORM-объекта Detection (в Pydantic v1 это называлось orm_mode). Благодаря этой схеме
+# в response_model Swagger (/docs) показывает структуру JSON, а не безымянный пустой ответ.
+class EventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)  # читать атрибуты ORM-объекта, а не только dict
+
+    id: int  # первичный ключ строки detections
+    timestamp: datetime  # время события (UTC); FastAPI сериализует в ISO-строку
+    object_class: str  # имя класса: "person" / "car"
+    confidence: float  # уверенность нейросети, 0..1
+    bounding_box: str  # координаты рамки строкой "[x1, y1, x2, y2]"
+    image_path: str | None = None  # путь к JPEG; в модели nullable, поэтому Optional
+
 
 app = FastAPI(title="Smart Observer API")  # экземпляр приложения; uvicorn находит его по имени `app`
 
@@ -42,11 +59,11 @@ def get_db():
 
 # JSON-эндпоинт для машинных клиентов (curl, скрипты, fetch с фронта).
 # По умолчанию отдаёт 10 свежих событий; limit меняется через query string: /api/events?limit=50.
-@app.get("/api/events")
+@app.get("/api/events", response_model=list[EventOut])
 async def get_events_json(limit: int = 10, db: Session = Depends(get_db)):
     # SELECT * FROM detections ORDER BY timestamp DESC LIMIT :limit — новейшие сверху
     events = db.query(Detection).order_by(Detection.timestamp.desc()).limit(limit).all()
-    return events  # FastAPI сам сериализует ORM-объекты в JSON через pydantic
+    return events  # FastAPI прогонит каждый ORM-объект через EventOut (from_attributes) и отдаст JSON
 
 
 # Главная страница дашборда — HTML с Bootstrap-сеткой карточек.
@@ -54,5 +71,6 @@ async def get_events_json(limit: int = 10, db: Session = Depends(get_db)):
 @app.get("/")
 async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     events = db.query(Detection).order_by(Detection.timestamp.desc()).limit(20).all()  # тот же запрос, что и в /api/events, но limit=20
-    # request обязателен в context для Jinja2Templates — внутри шаблона он нужен Starlette для url_for и т.п.
-    return templates.TemplateResponse("index.html", {"request": request, "events": events})
+    # Современная сигнатура Starlette: request передаём ПЕРВЫМ позиционным аргументом, а в контексте
+    # оставляем только свои данные. Старая форма TemplateResponse(name, {"request": ...}) — deprecated.
+    return templates.TemplateResponse(request, "index.html", {"events": events})
