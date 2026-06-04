@@ -47,7 +47,7 @@ app.mount("/images", StaticFiles(directory=str(SAVED_EVENTS_DIR)), name="images"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))  # одна точка рендера шаблонов на всё приложение
 
 
-# FastAPI Dependency: открываем сессию БД на каждый запрос и гарантированно закрываем.
+# FastAPI Dependency: открываем сессию DB на каждый запрос и гарантированно закрываем.
 # Через generator + try/finally close() сработает даже при исключении в хендлере.
 def get_db():
     db = SessionLocal()  # отдельная сессия на каждый HTTP-запрос — без shared state между запросами
