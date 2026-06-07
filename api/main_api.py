@@ -13,7 +13,7 @@ from pathlib import Path
 # чтобы uvicorn можно было запускать из любой директории
 PROJECT_DIR = Path(__file__).resolve().parent.parent  # ../.. от api/main_api.py
 SAVED_EVENTS_DIR = PROJECT_DIR / "data" / "saved_events"  # тот же каталог, куда пишет core/logger.py
-TEMPLATES_DIR = PROJECT_DIR / "api" / "templates"  # каталог Jinja2-шаблонов рядом с этим модулем
+TEMPLATES_DIR = PROJECT_DIR / "api" / "templates"  # каталог Jinja2-шаблонов
 
 # sys.path.append нужен, чтобы импорты `from db...` работали при запуске `uvicorn api.main_api:app` —
 # uvicorn кладёт в sys.path только пакет api, а корень проекта (где лежит db/) — нет.
@@ -74,3 +74,11 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     # Современная сигнатура Starlette: request передаём ПЕРВЫМ позиционным аргументом, а в контексте
     # оставляем только свои данные. Старая форма TemplateResponse(name, {"request": ...}) — deprecated.
     return templates.TemplateResponse(request, "index.html", {"events": events})
+
+
+# Версия дашборда в реальном времени (SPA). Сервер отдаёт только каркас index_with_js.html;
+# карточки рисует JavaScript, опрашивая /api/events каждые 3 секунды. Поэтому здесь не нужны
+# ни запрос к БД, ни передача events в контекст — данные подтянет сам фронтенд.
+@app.get("/live")
+async def serve_live_dashboard(request: Request):
+    return templates.TemplateResponse(request, "index_with_js.html", {})
