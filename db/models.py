@@ -24,6 +24,9 @@ class Detection(Base):
     # Путь к сохраненному скриншоту на диске
     image_path: Mapped[str] = mapped_column(String(255), nullable=True)
 
+    # НОВОЕ ПОЛЕ: Описание от LLM
+    description: Mapped[str] = mapped_column(String(500), nullable=True)
+
     def __repr__(self):
         # Это для красивого вывода объекта в консоль (print)
         return f"<Detection(id={self.id}, class='{self.object_class}', conf={self.confidence:.2f})>"

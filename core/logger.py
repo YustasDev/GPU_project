@@ -12,7 +12,6 @@ from sqlalchemy.exc import SQLAlchemyError  # общий корень исклю
 from db.database import Base, SessionLocal, engine  # схема, фабрика сессий и движок БД
 from db.models import Detection  # ORM-модель таблицы detections
 
-
 logger = logging.getLogger(__name__)  # логгер с именем модуля (core.logger)
 
 
@@ -21,11 +20,13 @@ class DBLogger(threading.Thread):  # поток-консумер событий:
         self,
         event_queue: Queue,  # очередь событий от AI Detector
         save_dir: str,  # каталог для JPEG-снимков
+        analysis_queue: Queue | None = None,  # очередь detection_id для LLM-анализатора (None = без LLM)
         get_timeout: float = 0.5,  # таймаут ожидания события — даёт прерываемость stop()
     ):
         super().__init__(name="DBLogger", daemon=True)  # имя потока + daemon=True (умрёт с программой)
         self.event_queue = event_queue  # источник событий
         self.save_dir = save_dir  # сохраняем для использования в _save_image
+        self.analysis_queue = analysis_queue  # сюда кладём id сохранённых строк для LLM-анализа
         self.get_timeout = get_timeout  # период пробуждения цикла при пустой очереди
         self._stop_event = threading.Event()  # потокобезопасный флаг остановки (как в VideoStreamer/AIDetector)
         self._last_frame = None  # ссылка на последний обработанный numpy-кадр
@@ -74,6 +75,15 @@ class DBLogger(threading.Thread):  # поток-консумер событий:
             self._last_filepath,
         )
 
+        # Отдаём id сохранённой строки ОДНОМУ фоновому LLM-анализатору (а не плодим потоки).
+        # put_nowait — не блокируем писателя; если очередь полна (анализатор отстаёт из-за
+        # троттлинга/лимитов) — пропускаем анализ этого события с предупреждением.
+        if self.analysis_queue is not None:
+            try:
+                self.analysis_queue.put_nowait(record.id)
+            except queue.Full:
+                logger.warning("analysis_queue полна — LLM-анализ события id=%s пропущен", record.id)
+
     def _drain(self, db) -> None:  # дописать оставшиеся события после stop()
         drained = 0  # счётчик обработанных при дренаже событий
         while True:  # тянем из очереди всё, пока не пусто
@@ -103,7 +113,7 @@ class DBLogger(threading.Thread):  # поток-консумер событий:
                         event = self.event_queue.get(timeout=self.get_timeout)  # блокирующее ожидание
                     except queue.Empty:  # за таймаут события не пришло — проверим _stop_event и снова ждём
                         continue  # без sleep: get(timeout=...) уже корректно отдаёт GIL
-                    self._handle_event(db, event)  # обработка одного события
+                    self._handle_event(db, event)  # обработка одного события (файл + БД + запуск LLM)
                 self._drain(db)  # после stop() дописываем хвост — события не теряются
         except Exception:  # любая необработанная ошибка вне SQLAlchemyError
             logger.exception("Непредвиденная ошибка в DBLogger")  # сохраняем стектрейс

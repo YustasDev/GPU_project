@@ -5,6 +5,7 @@ import time  # для пауз главного цикла и стартовог
 from pathlib import Path  # абсолютные пути относительно расположения этого файла
 from queue import Queue  # потокобезопасные очереди-«нити связи» между воркерами
 
+from core.analyzer import LLMAnalyzer  # фоновый поток-анализатор: очередь detection_id → LLM (троттлинг)
 from core.detector import AIDetector  # поток-детектор YOLO
 from core.logger import DBLogger  # поток-писатель в PostgreSQL и на диск
 from core.streamer import VideoStreamer  # поток-чтение кадров из источника
@@ -22,10 +23,12 @@ LOG_DIR = PROJECT_DIR / "logs"  # каталог для файловых лог�
 TARGET_CLASSES = [0, 1]
 FRAME_QUEUE_MAX = 30  # ~1 секунда буфера кадров на 30 fps
 EVENT_QUEUE_MAX = 100  # запас событий на случай задержек БД
+ANALYSIS_QUEUE_MAX = 50  # запас detection_id для LLM-анализатора (он медленный из-за троттлинга)
 STARTUP_GRACE = 3.0  # сколько ждём после start() до проверки is_alive() (DB-схема, загрузка YOLO)
 STREAMER_JOIN_TIMEOUT = 2.0  # стример реагирует на stop() почти мгновенно через _stop_event.wait
 DETECTOR_JOIN_TIMEOUT = 2.0  # один проход YOLO-инференса заметно меньше секунды
 DB_LOGGER_JOIN_TIMEOUT = 10.0  # больше — на случай дренажа очереди событий и медленных коммитов
+ANALYZER_JOIN_TIMEOUT = 5.0  # LLM-запрос может идти до ~30 c; дольше не ждём — поток daemon
 STATUS_INTERVAL = 5.0  # период статусных строк с размерами очередей
 
 
@@ -94,13 +97,19 @@ def configure_logging() -> None:
     )
 
 
-def graceful_shutdown(streamer: VideoStreamer, detector: AIDetector, db_logger: DBLogger) -> None:
+def graceful_shutdown(
+    streamer: VideoStreamer,
+    detector: AIDetector,
+    db_logger: DBLogger,
+    analyzer: LLMAnalyzer,
+) -> None:
     # Гасим в порядке поток-данных: сначала продюсер, потом потребители.
     # Если остановить логгер первым, детектор продолжит толкать в event_queue, и будет race с _drain().
     steps = (
         (streamer, STREAMER_JOIN_TIMEOUT),  # сначала перестаём поставлять кадры
         (detector, DETECTOR_JOIN_TIMEOUT),  # затем детектор дорабатывает остаток frame_queue
-        (db_logger, DB_LOGGER_JOIN_TIMEOUT),  # последним — логгер, чтобы он успел дренировать event_queue
+        (db_logger, DB_LOGGER_JOIN_TIMEOUT),  # затем логгер дренирует event_queue
+        (analyzer, ANALYZER_JOIN_TIMEOUT),  # последним — LLM-анализатор (финальный потребитель detection_id)
     )
     for thread, timeout in steps:  # обрабатываем каждый поток последовательно (а не параллельно)
         if not thread.is_alive():  # поток уже умер (например, на этапе старта) — пропускаем
@@ -132,6 +141,7 @@ def main() -> int:
     # Очереди — единственный способ обмена между потоками; maxsize ограничивает RAM
     frame_queue: Queue = Queue(maxsize=FRAME_QUEUE_MAX)  # стример → детектор
     event_queue: Queue = Queue(maxsize=EVENT_QUEUE_MAX)  # детектор → логгер
+    analysis_queue: Queue = Queue(maxsize=ANALYSIS_QUEUE_MAX)  # логгер → LLM-анализатор (detection_id)
 
     # Воркеры; конструкторы лёгкие — реальная работа в .run() после .start()
     streamer = VideoStreamer(source=source, frame_queue=frame_queue)
@@ -144,22 +154,25 @@ def main() -> int:
     db_logger = DBLogger(
         event_queue=event_queue,  # переименован с logger -> db_logger, чтобы не затирать модульный logger
         save_dir=str(SAVE_DIR),  # абсолютный путь под JPEG, не зависит от CWD
+        analysis_queue=analysis_queue,  # сюда логгер кладёт id сохранённых строк для LLM-анализа
     )
+    analyzer = LLMAnalyzer(analysis_queue=analysis_queue)  # один поток на все LLM-запросы, с троттлингом
 
     # Порядок старта: сначала консумеры (чтобы были готовы принимать), потом продюсер.
     # Если запустить streamer первым, кадры пойдут в очередь, пока detector ещё не загрузил модель.
     db_logger.start()  # открывает сессию БД, делает create_all
+    analyzer.start()  # поток-потребитель detection_id; ждёт, пока появятся сохранённые события
     detector.start()  # загружает YOLO на GPU (это самое долгое — ~3–5 секунд)
     streamer.start()  # открывает камеру и начинает читать кадры
 
     # Health-check: даём потокам подняться и проверяем, что никто не умер на старте.
     # Ловит «быстрые» поломки: БД недоступна (create_all падает), нет файла весов и т.п.
     time.sleep(STARTUP_GRACE)  # пассивная пауза; не идеально, но достаточно для учебной системы
-    dead = [t for t in (db_logger, detector, streamer) if not t.is_alive()]  # кто не дожил
+    dead = [t for t in (db_logger, analyzer, detector, streamer) if not t.is_alive()]  # кто не дожил
     if dead:  # хотя бы один поток упал
         for t in dead:
             logger.error("Поток %s не запустился — выход", t.name)  # причину покажет лог в его run()
-        graceful_shutdown(streamer, detector, db_logger)  # гасим тех, кто всё-таки поднялся
+        graceful_shutdown(streamer, detector, db_logger, analyzer)  # гасим тех, кто всё-таки поднялся
         return 1  # нештатное завершение
 
     logger.info("Все потоки запущены, входим в главный цикл (Ctrl+C для остановки).")
@@ -170,16 +183,18 @@ def main() -> int:
             # qsize() даёт приблизительное значение под нагрузкой — для статуса этого достаточно.
             # Растёт frames — детектор узкое место; растёт events — БД узкое место.
             logger.info(
-                "Очереди: frames=%d/%d events=%d/%d",
+                "Очереди: frames=%d/%d events=%d/%d analysis=%d/%d",
                 frame_queue.qsize(),
                 FRAME_QUEUE_MAX,
                 event_queue.qsize(),
                 EVENT_QUEUE_MAX,
+                analysis_queue.qsize(),
+                ANALYSIS_QUEUE_MAX,
             )
     except KeyboardInterrupt:  # Ctrl+C → SIGINT → KeyboardInterrupt в главном потоке
         logger.info("Получен Ctrl+C, начинаем штатное завершение...")  # видимое подтверждение
 
-    graceful_shutdown(streamer, detector, db_logger)  # стандартный путь остановки и при Ctrl+C
+    graceful_shutdown(streamer, detector, db_logger, analyzer)  # стандартный путь остановки и при Ctrl+C
     logger.info("=== Система Smart Observer безопасно выключена ===")
     return 0  # нормальный код возврата
 

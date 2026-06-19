@@ -43,19 +43,25 @@
                 <span class="badge bg-success conf-badge">{{ (event.confidence * 100) | round(1) }}%</span>
 
                 <div class="card-body">
-                    <!-- text-capitalize делает "person" → "Person" без правки данных в БД -->
                     <h5 class="card-title text-capitalize text-primary">{{ event.object_class }}</h5>
-                    <p class="card-text text-muted small">
-                        {# strftime в шаблоне работает потому, что timestamp приходит как datetime, а не как строка #}
-                        🕒 {{ event.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+                    <p class="card-text text-muted small mb-1">🕒 {{ event.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+
+                    {# Описание от LLM пишет core/analyzer.py в Detection.description (асинхронно, в фоне).
+                       Пока анализ не завершён — description=NULL, показываем «анализирует».
+                       ВНИМАНИЕ: страница серверная (GET /), статус обновится только при перезагрузке (F5).
+                       Для live-обновления есть отдельный маршрут /live → index_with_js.html. #}
+                    {% if event.description %}
+                    <p class="card-text mt-2" style="font-size: 0.9em; background: #eef2f3; padding: 8px; border-radius: 5px; border-left: 3px solid #0d6efd;">
+                        <strong>🤖 Отчет ИИ:</strong><br>{{ event.description }}
                     </p>
-                    <p class="card-text text-secondary" style="font-size: 0.85em;">
-                        <!-- bounding_box хранится в БД как строка "[x1, y1, x2, y2]" (см. db/models.py и core/detector.py) -->
-                        Координаты (BBox):<br> {{ event.bounding_box }}
-                    </p>
+                    {% else %}
+                    <p class="card-text text-muted mt-2 small"><em>⏳ ИИ анализирует изображение...</em></p>
+                    {% endif %}
                 </div>
-            </div>
-        </div>
+
+            </div>  <!-- /.card -->
+        </div>      <!-- /.col -->
+
         {% else %}
         {# Сюда попадаем, если events пустой — например, до первого запуска main.py или после очистки таблицы #}
         <div class="col-12 text-center mt-5">
@@ -66,5 +72,5 @@
     </div>
 </div>
 
-</body>
+ </body>
 </html>
