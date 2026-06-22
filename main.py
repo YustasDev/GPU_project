@@ -47,6 +47,12 @@ def parse_args() -> argparse.Namespace:
             "или RTSP/HTTP URL. По умолчанию '0' (первая веб-камера)."
         ),
     )
+    parser.add_argument(
+        "--frequency",
+        type=float,
+        default=1.0,
+        help="Сколько раз в секунду выполнять детекцию (по умолчанию 1.0).",
+    )
     return parser.parse_args()
 
 
@@ -128,10 +134,14 @@ def main() -> int:
     source = resolve_source(args.source)  # int | str | None
     if source is None:
         return 1  # ошибка уже залогирована в resolve_source
+    if args.frequency <= 0:  # защита от деления на ноль и бессмысленных значений в детекторе
+        logger.error("Частота детекции должна быть больше 0, получено: %s", args.frequency)
+        return 1  # ненулевой код возврата — некорректный ввод
 
     logger.info("=== Запуск системы Smart Observer ===")  # видимый стартовый маркер
     logger.info("Модель: %s", MODEL_PATH)  # явно фиксируем, какие веса используем
     logger.info("Источник видео: %s", source)  # тип int (вебка) или str (файл/URL)
+    logger.info("Частота детекции: %.1f детекций/с", args.frequency)  # эхо CLI-флага --frequency
     logger.info("Целевые классы: %s", TARGET_CLASSES)  # имена будут видны из лога модели
 
     if not MODEL_PATH.is_file():  # быстрый предполётный чек: веса должны существовать
@@ -150,6 +160,7 @@ def main() -> int:
         frame_queue=frame_queue,  # откуда брать кадры
         event_queue=event_queue,  # куда класть события
         target_classes=TARGET_CLASSES,  # фильтруем детекции по этим классам
+        detection_frequency=args.frequency,  # сколько детекций в секунду (CLI --frequency)
     )
     db_logger = DBLogger(
         event_queue=event_queue,  # переименован с logger -> db_logger, чтобы не затирать модульный logger

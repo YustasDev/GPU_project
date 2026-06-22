@@ -16,6 +16,11 @@ class VideoStreamer(threading.Thread):  # поток, читающий кадр�
         self.source = source  # источник: индекс камеры, путь к файлу или RTSP URL
         self.frame_queue = frame_queue  # очередь, куда складываем свежие кадры
         self.reconnect_delay = reconnect_delay  # пауза перед попыткой переоткрыть источник, сек
+        # Источник — локальный файл? (строка-путь, а не сетевой URL). Для файла потом
+        # выдерживаем реальный FPS, иначе cap.read() «проглотит» всё видео за доли секунды.
+        self._is_file = isinstance(source, str) and not source.startswith(
+            ("rtsp://", "http://", "https://")
+        )
         self._stop_event = threading.Event()  # потокобезопасный флаг остановки
 
     @property
@@ -44,9 +49,22 @@ class VideoStreamer(threading.Thread):  # поток, читающий кадр�
             except queue.Full:  # крайне маловероятно, но не блокируемся
                 logger.debug("Очередь по-прежнему полна, кадр отброшен")  # отладочное сообщение
 
+    def _frame_interval(self, cap) -> float:  # пауза между кадрами в зависимости от типа источника
+        # Камера/RTSP сами задают темп выдачи кадров — лишь чуть притормаживаем,
+        # чтобы отдать GIL потребителю и не жечь CPU на быстрых источниках.
+        if not self._is_file:
+            return 0.005  # 5 мс
+        # Для видеофайла cap.read() отдаёт кадры максимально быстро, поэтому держим
+        # паузу под реальный FPS файла, чтобы воспроизведение шло в нормальном темпе.
+        fps = cap.get(cv2.CAP_PROP_FPS)  # частота кадров из метаданных файла
+        if not fps or fps <= 0:  # некоторые контейнеры FPS не сообщают → тогда используем дефолтное значение 30 кадров/с
+            fps = 30.0
+        return 1.0 / fps  # секунд на один кадр
+
     def run(self) -> None:  # основной метод потока, вызывается из start()
         logger.info("Подключение к источнику: %s", self.source)  # стартовое сообщение
         cap = self._open_capture()  # первая попытка открыть источник
+        frame_interval = self._frame_interval(cap)  # темп выдачи: реальный FPS файла или 5 мс для камеры
         try:
             while not self._stop_event.is_set():  # крутимся, пока не попросили остановиться
                 if not cap.isOpened():  # источник закрыт — пробуем переоткрыть
@@ -70,7 +88,7 @@ class VideoStreamer(threading.Thread):  # поток, читающий кадр�
                     continue  # к следующей итерации цикла
 
                 self._push_frame(frame)  # кладём свежий кадр в очередь
-                time.sleep(0.005)  # 5 мс: отдаём GIL потребителю и не жжём CPU на быстрых источниках
+                time.sleep(frame_interval)  # выдерживаем темп: реальный FPS файла либо 5 мс для камеры
         except Exception:  # ловим всё, чтобы гарантированно отпустить cap в finally
             logger.exception("Непредвиденная ошибка в VideoStreamer")  # лог со стектрейсом
         finally:

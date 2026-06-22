@@ -17,11 +17,13 @@ logger = logging.getLogger(__name__)  # логгер модуля (core.analyzer
 
 # === Константы (вынесены, чтобы не хардкодить по месту) ===
 BASE_URL = "https://models.github.ai/inference"  # эндпоинт GitHub Models (OpenAI-совместимый)
-MODEL = "openai/gpt-4.1"  # vision-модель; для мягких free-лимитов можно "openai/gpt-4.1-mini"
+# Активная vision-модель из каталога GitHub Models. Альтернатива (OpenAI):
+# MODEL = "openai/gpt-4.1"  # для мягких free-лимитов можно "openai/gpt-4.1-mini"
+MODEL = "meta/Llama-3.2-90B-Vision-Instruct"  # бесплатная мультимодальная модель Meta на GitHub Models
 REQUEST_TIMEOUT = 30.0  # сек: ограничиваем сетевой запрос, чтобы фоновый поток не висел вечно
 MAX_TOKENS = 200  # потолок длины ответа — бережёт квоту и не даёт переполнить колонку
 MAX_DESCRIPTION_LEN = 500  # длина колонки Detection.description (VARCHAR(500))
-ANALYSIS_THROTTLE_SEC = 6.0  # мин. интервал между запросами к LLM (free gpt-4.1 ~10 RPM → ~1 в 6 c)
+ANALYSIS_THROTTLE_SEC = 6.0  # минимальный интервал между запросами к LLM (free-tier GitHub Models ~10 RPM → ~1 в 6 c)
 
 PROMPT_TEXT = (
     "Ты — строгий охранник системы видеонаблюдения. "

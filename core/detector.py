@@ -2,6 +2,7 @@
 import logging
 import queue
 import threading
+import time
 from queue import Queue
 import cv2
 from ultralytics import YOLO
@@ -19,6 +20,7 @@ class AIDetector(threading.Thread):  # поток: потребитель кад
         device: str = "cuda:0",  # устройство инференса; по конвенции проекта — первая GPU
         confidence: float = 0.5,  # порог уверенности YOLO для включения детекции
         get_timeout: float = 0.1,  # таймаут ожидания кадра — даёт прерываемость stop()
+        detection_frequency: float = 1.0,  # сколько раз в секунду запускать детекцию
     ):
         super().__init__(name="AIDetector", daemon=True)  # имя потока + daemon=True (умрёт с программой)
         self.model_path = model_path  # сохраняем для лога и загрузки модели в run()
@@ -28,6 +30,8 @@ class AIDetector(threading.Thread):  # поток: потребитель кад
         self.device = device  # устройство для model(...)
         self.confidence = confidence  # порог conf для YOLO
         self.get_timeout = get_timeout  # период проверки _stop_event при пустой очереди
+        self.detection_frequency = detection_frequency  # детекций в секунду
+        self._last_detection_time = 0.0  # время последнего инференса
         self._stop_event = threading.Event()  # потокобезопасный флаг остановки (как в VideoStreamer)
 
     @property
@@ -61,8 +65,17 @@ class AIDetector(threading.Thread):  # поток: потребитель кад
             while not self._stop_event.is_set():  # крутимся, пока не попросили остановиться
                 try:
                     frame = self.frame_queue.get(timeout=self.get_timeout)  # блокирующее ожидание с таймаутом
-                except queue.Empty:  # кадр не пришел — проверим _stop_event и снова ждём
+                except queue.Empty:  # кадр не пришёл — проверим _stop_event и снова ждём
                     continue
+
+                # Троттлинг частоты детекции: между инференсами выдерживаем интервал
+                # 1/detection_frequency, а «лишние» кадры просто пропускаем. Так нагрузка
+                # на GPU не зависит от FPS источника (например, 30 кадров/с → 1 детекция/с).
+                now = time.time()  # текущее время в секундах (для измерения интервала)
+                min_interval = 1.0 / self.detection_frequency  # сек между детекциями; freq > 0 гарантирует main.py
+                if now - self._last_detection_time < min_interval:  # ещё рано — кадр пропускаем
+                    continue
+                self._last_detection_time = now  # запоминаем момент этого инференса
 
                 try:
                     results = model(  # синхронный инференс на выбранном устройстве
