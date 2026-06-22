@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)  # логгер модуля (core.analyzer
 
 # === Константы (вынесены, чтобы не хардкодить по месту) ===
 BASE_URL = "https://models.github.ai/inference"  # эндпоинт GitHub Models (OpenAI-совместимый)
-# Активная vision-модель из каталога GitHub Models. Альтернатива (OpenAI):
-# MODEL = "openai/gpt-4.1"  # для мягких free-лимитов можно "openai/gpt-4.1-mini"
-MODEL = "meta/Llama-3.2-90B-Vision-Instruct"  # бесплатная мультимодальная модель Meta на GitHub Models
+# Активная vision-модель из каталога GitHub Models. Альтернатива (Meta):
+# MODEL = "meta/Llama-3.2-90B-Vision-Instruct"  # бесплатная мультимодальная модель Meta
+MODEL = "openai/gpt-4.1"  # vision-модель OpenAI; для мягких free-лимитов можно "openai/gpt-4.1-mini"
 REQUEST_TIMEOUT = 30.0  # сек: ограничиваем сетевой запрос, чтобы фоновый поток не висел вечно
 MAX_TOKENS = 200  # потолок длины ответа — бережёт квоту и не даёт переполнить колонку
 MAX_DESCRIPTION_LEN = 500  # длина колонки Detection.description (VARCHAR(500))
@@ -120,11 +120,16 @@ class LLMAnalyzer(threading.Thread):  # ОДИН фоновый поток-по�
         self.analysis_queue = analysis_queue  # источник detection_id
         self.throttle_sec = throttle_sec  # троттлинг под rate-limit провайдера
         self.get_timeout = get_timeout  # период пробуждения цикла при пустой очереди
+        self._busy = False  # занят ли анализатор обработкой события прямо сейчас (для авто-стопа в main)
         self._stop_event = threading.Event()  # потокобезопасный флаг остановки
 
     @property
     def stopped(self) -> bool:  # единый публичный атрибут, как у других потоков
         return self._stop_event.is_set()
+
+    @property
+    def busy(self) -> bool:  # True, пока идёт обработка одного события (main ждёт этого перед авто-стопом)
+        return self._busy
 
     def stop(self) -> None:  # внешний API: попросить поток завершиться
         self._stop_event.set()  # цикл выйдет на ближайшей проверке; прервёт и троттлинг-ожидание
@@ -136,10 +141,13 @@ class LLMAnalyzer(threading.Thread):  # ОДИН фоновый поток-по�
                 detection_id = self.analysis_queue.get(timeout=self.get_timeout)  # ждём id с таймаутом
             except queue.Empty:  # за таймаут ничего не пришло — проверим _stop_event и снова ждём
                 continue
+            self._busy = True  # помечаем занятость: main не остановит нас на полузапросе
             try:
                 analyze_event(detection_id)  # сам ловит свои ошибки (сеть, 429, БД) и не бросает наружу
             except Exception:  # подстраховка от чего-либо непредвиденного — поток не должен умирать
                 logger.exception("LLM-анализатор: непредвиденная ошибка для #%s", detection_id)
+            finally:
+                self._busy = False  # обработка события завершена
             # Троттлинг: пауза между запросами, прерываемая по stop() (wait вернётся сразу при set()).
             self._stop_event.wait(self.throttle_sec)
         logger.info("LLM-анализатор остановлен.")  # финальное сообщение о завершении потока

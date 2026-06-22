@@ -27,6 +27,10 @@ class VideoStreamer(threading.Thread):  # поток, читающий кадр�
     def stopped(self) -> bool:  # совместимость со старым публичным атрибутом stopped
         return self._stop_event.is_set()  # True, если остановку уже запросили
 
+    @property
+    def is_file(self) -> bool:  # источник — локальный видеофайл, а не камера/сетевой поток
+        return self._is_file
+
     def stop(self) -> None:  # внешний API: попросить поток завершиться
         self._stop_event.set()  # выставляем событие — цикл выйдет на ближайшей проверке
 
@@ -79,7 +83,11 @@ class VideoStreamer(threading.Thread):  # поток, читающий кадр�
                     continue  # к следующей итерации цикла
 
                 ret, frame = cap.read()  # пробуем прочитать очередной кадр
-                if not ret:  # кадр не получен (конец файла или обрыв связи)
+                if not ret:  # кадр не получен
+                    if self._is_file:  # для ФАЙЛА это конец видео — НЕ переоткрываем
+                        logger.info("Видеофайл закончился (EOF), чтение остановлено.")
+                        break  # выходим: конвейер доработает уже захваченные кадры
+                    # камера/сетевой поток — это обрыв связи, пробуем переподключиться (как раньше)
                     logger.warning("Видеопоток прерван, попытка переподключиться")  # предупреждение
                     cap.release()  # освобождаем старый capture перед переоткрытием
                     if self._stop_event.wait(self.reconnect_delay):  # ждём, но прерываемо stop()

@@ -128,6 +128,20 @@ def graceful_shutdown(
             logger.warning("Поток %s не завершился за %.1f с", thread.name, timeout)
 
 
+def await_pipeline_drain(frame_queue, event_queue, analysis_queue, analyzer, poll=1.0, stable=2):
+    # Блокируется, пока конвейер не опустеет: все очереди пусты И анализатор не занят.
+    # Условие должно держаться `stable` проверок подряд — защита от гонок между стадиями
+    # (например, кадр уже взят из frame_queue, но событие ещё не дошло до event_queue).
+    ok = 0  # счётчик подряд идущих «пусто»
+    while ok < stable:
+        time.sleep(poll)  # короткий интервал опроса
+        if (frame_queue.empty() and event_queue.empty()
+                and analysis_queue.empty() and not analyzer.busy):
+            ok += 1  # ещё одна проверка подтвердила опустошение
+        else:
+            ok = 0  # что-то ещё в работе — сбрасываем счётчик
+
+
 def main() -> int:
     configure_logging()  # ПЕРВЫМ ДЕЛОМ — иначе нижние logger.info ничего не выведут
     args = parse_args()  # читаем CLI до запуска потоков
@@ -179,7 +193,12 @@ def main() -> int:
     # Health-check: даём потокам подняться и проверяем, что никто не умер на старте.
     # Ловит «быстрые» поломки: БД недоступна (create_all падает), нет файла весов и т.п.
     time.sleep(STARTUP_GRACE)  # пассивная пауза; не идеально, но достаточно для учебной системы
-    dead = [t for t in (db_logger, analyzer, detector, streamer) if not t.is_alive()]  # кто не дожил
+    # Для файла стример может законно завершиться (короткое видео доиграло за STARTUP_GRACE) —
+    # это не сбой старта; для камеры/сетевого потока стример обязан быть жив.
+    startup_threads = [db_logger, analyzer, detector]
+    if not streamer.is_file:
+        startup_threads.append(streamer)
+    dead = [t for t in startup_threads if not t.is_alive()]  # кто не дожил
     if dead:  # хотя бы один поток упал
         for t in dead:
             logger.error("Поток %s не запустился — выход", t.name)  # причину покажет лог в его run()
@@ -202,6 +221,13 @@ def main() -> int:
                 analysis_queue.qsize(),
                 ANALYSIS_QUEUE_MAX,
             )
+            # Авто-завершение для видеофайла: стример дочитал файл до конца (EOF) и больше не жив.
+            # Камера/сетевой поток так не завершаются — для них работаем до Ctrl+C.
+            if streamer.is_file and not streamer.is_alive():
+                logger.info("Файл прочитан, ждём, пока конвейер доработает захваченные кадры...")
+                await_pipeline_drain(frame_queue, event_queue, analysis_queue, analyzer)
+                logger.info("Все кадры обработаны и описаны — завершаем работу.")
+                break  # выходим из цикла → штатное завершение ниже
     except KeyboardInterrupt:  # Ctrl+C → SIGINT → KeyboardInterrupt в главном потоке
         logger.info("Получен Ctrl+C, начинаем штатное завершение...")  # видимое подтверждение
 
