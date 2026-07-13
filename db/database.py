@@ -1,9 +1,22 @@
+import os  # для чтения переменных окружения
+
+from dotenv import load_dotenv  # подгрузка .env при локальном запуске
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
+load_dotenv()  # подхватываем .env, если он есть (актуально при локальном запуске вне Docker)
+
 # Строка подключения (Connection String)
-# Формат: диалект+драйвер://имя:пароль@хост:порт/имя_базы (вам надо поставить свои данные)
-DATABASE_URL = "postgresql+psycopg2://myuser:mypassword@localhost:5432/mydatabase"
+# Формат: диалект+драйвер://имя:пароль@хост:порт/имя_базы
+# Секрет НЕ хардкодим НИГДЕ (даже как «запасной вариант»): строку целиком берём
+# из переменной окружения DATABASE_URL — локально из .env, в Docker её подставляет
+# docker-compose (там хост — "db").
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:  # переменной нет — честно падаем с понятной ошибкой, а не с дефолтным паролем в коде
+    raise RuntimeError(
+        "Переменная окружения DATABASE_URL не задана. "
+        "Скопируйте .env.example в .env и заполните его (см. главу 12)."
+    )
 
 
 # Создаем "Двигатель" (Engine) - точку входа в БД

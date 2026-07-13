@@ -1,55 +1,80 @@
+# Имя проекта. Оно задаёт префикс для сети и томов, поэтому сеть будет
+# называться smart_observer_default, а тома — smart_observer_pgdata и т.д.
+# Без этой строки Compose взял бы имя папки проекта (например, ai_project).
+name: smart_observer
+
 services:
-  postgres:
-    # Образ PostgreSQL версии 16
-    # Фиксируйте версии образов (postgres:16, а не postgres:latest). Обновление мажорной версии базы данных может сломать схему данных.
-    image: postgres:16
-    
-    # Имя контейнера (чтобы легко обращаться через docker exec)
-    container_name: postgres_db
-    network_mode: host 
-    
-    # Переменные окружения для настройки БД
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}            # Имя суперпользователя
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}    # Пароль суперпользователя
-      POSTGRES_DB: ${POSTGRES_DB}                # Имя базы данных для создания при старте
-      PGDATA: /var/lib/postgresql/data/pgdata    # Путь к данным внутри контейнера 
-    
-    # Публикация портов (хост:контейнер)
-    #ports:
-    #  - "5432:5432"
-    
-    # Тома для сохранения данных (персистентность)
-    volumes:
-      # Именованный том - данные сохранятся после удаления контейнера
-      - postgres_data:/var/lib/postgresql/data
-      # Опционально: монтирование скриптов инициализации
-      - ./init:/docker-entrypoint-initdb.d:ro
-    
-    # Проверка здоровья (health check)
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U myuser -d mydatabase"]
-      interval: 10s      # Проверка каждые 10 секунд
-      timeout: 5s        # Таймаут проверки
-      retries: 5         # Количество попыток перед пометкой "unhealthy"
-      start_period: 10s  # Время на запуск перед началом проверок
-    
-    # Политика перезапуска
+  # ----------------------------------------
+  # 1. БАЗА ДАННЫХ (Память)
+  # ----------------------------------------
+  db:
+    image: postgres:16-alpine        # alpine — компактный образ на базе Alpine Linux
+    container_name: observer_db
     restart: unless-stopped
-    
-    # Ограничение ресурсов (опционально, для продакшена)
+    env_file:
+      - .env                          # POSTGRES_USER/PASSWORD/DB Postgres прочитает сам
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Проверка готовности: пока pg_isready не ответит «ОК», контейнер считается
+    # not healthy, и зависящие от него сервисы ждут. $$ — экранированный $:
+    # так переменную развернёт shell ВНУТРИ контейнера (из его окружения), а не Compose.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------
+  # 2. ВЕБ-СЕРВЕР И API (Интерфейс)
+  # ----------------------------------------
+  api_server:
+    build: .                          # собрать образ из нашего Dockerfile
+    image: smart_observer:${TAG:-1.0.0}   # имя:тег образа. Общий для обоих сервисов → Compose соберёт его ОДИН раз.
+    container_name: observer_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy    # ждём не «запуска», а именно ГОТОВНОСТИ базы
+    # host 0.0.0.0 — слушать на всех интерфейсах контейнера, иначе снаружи не достучаться.
+    command: uvicorn api.main_api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"                   # проброс порта наружу: хост:контейнер
+    volumes:
+      - shared_events:/app/data/saved_events   # тот же том, что и у воркера
+
+  # ----------------------------------------
+  # 3. AI-ВОРКЕР (Мозг и Глаза)
+  # ----------------------------------------
+  ai_worker:
+    build: .                          # тот же контекст сборки, что и у api_server
+    image: smart_observer:${TAG:-1.0.0}   # ТОТ ЖЕ образ, что и у api_server → второй раз не пересобирается
+    container_name: observer_ai_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    command: python main.py --source 0        # источник видео (0 — веб-камера)
+    volumes:
+      - shared_events:/app/data/saved_events   # общая с веб-сервером папка для фото
+    # Проброс веб-камеры ЧЕРЕЗ devices (не volumes!): иначе узел /dev/video0 виден,
+    # но cgroup запрещает доступ («Operation not permitted»). devices даёт и узел, и права.
+    devices:
+      - /dev/video0:/dev/video0
+    # Проброс видеокарты NVIDIA внутрь контейнера
     deploy:
       resources:
-        limits:
-          memory: 1G
-          cpus: '1.0'
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
-# Объявление именованных томов
+# Регистрация именованных томов (виртуальных «дисков», которыми управляет Docker)
 volumes:
-  postgres_data:
-    driver: local  # Локальный драйвер хранения (по умолчанию)
-
-# Объявление сетей (опционально, по умолчанию создаётся сеть автоматически)
-networks:
-  default:
-    driver: bridge
+  pgdata:          # хранилище таблиц базы данных
+  shared_events:   # общее хранилище фотографий (кадров событий)
