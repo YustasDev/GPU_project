@@ -16,14 +16,18 @@ from db.models import Detection  # ORM-модель таблицы detections
 logger = logging.getLogger(__name__)  # логгер модуля (core.analyzer) — пишет в общие logs/*.log
 
 # === Константы (вынесены, чтобы не хардкодить по месту) ===
-BASE_URL = "https://models.github.ai/inference"  # эндпоинт GitHub Models (OpenAI-совместимый)
-# Активная vision-модель из каталога GitHub Models. Альтернатива (Meta):
-# MODEL = "meta/Llama-3.2-90B-Vision-Instruct"  # бесплатная мультимодальная модель Meta
-MODEL = "openai/gpt-4.1"  # vision-модель OpenAI; для мягких free-лимитов можно "openai/gpt-4.1-mini"
+# LLM-провайдер — OpenRouter (OpenAI-совместимый агрегатор моделей). Прежний GitHub Models
+# выводится из эксплуатации 30.07.2026, поэтому LLM-слой переехал сюда.
+BASE_URL = "https://openrouter.ai/api/v1"  # эндпоинт OpenRouter (OpenAI-совместимый)
+# Активная vision-модель. ВАЖНО: она обязана поддерживать image-input (быть мультимодальной);
+# текстовой модели картинка вернёт 404 "No endpoints found that support image input".
+# Бесплатный каталог OpenRouter меняется — актуальный :free-id сверяйте на openrouter.ai/models.
+MODEL = "google/gemma-4-26b-a4b-it:free"  # бесплатная vision-модель, чистый русский на нашем контенте
+# Альтернатива (тоже бесплатная vision): "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
 REQUEST_TIMEOUT = 30.0  # сек: ограничиваем сетевой запрос, чтобы фоновый поток не висел вечно
 MAX_TOKENS = 200  # потолок длины ответа — бережёт квоту и не даёт переполнить колонку
 MAX_DESCRIPTION_LEN = 500  # длина колонки Detection.description (VARCHAR(500))
-ANALYSIS_THROTTLE_SEC = 6.0  # минимальный интервал между запросами к LLM (free-tier GitHub Models ~10 RPM → ~1 в 6 c)
+ANALYSIS_THROTTLE_SEC = 6.0  # минимальный интервал между запросами к LLM (бесплатный OpenRouter ~20 RPM → с запасом ~1 в 6 c)
 
 PROMPT_TEXT = (
     "Ты — строгий охранник системы видеонаблюдения. "
@@ -36,16 +40,18 @@ PROMPT_TEXT = (
 @lru_cache(maxsize=1)
 def _get_client() -> OpenAI:
     """Ленивое создание клиента: при ПЕРВОМ вызове, а не на импорте модуля.
-    Так отсутствие GITHUB_TOKEN не уронит весь пайплайн (модуль импортируется в main.py)."""
+    Так отсутствие ключа не уронит весь пайплайн (модуль импортируется в main.py)."""
     load_dotenv()  # подхватываем .env, если есть
-    token = os.environ.get("GITHUB_TOKEN")  # читаем токен из окружения
-    if not token:  # нет токена — сообщаем понятной ошибкой (ловится в analyze_event)
-        raise RuntimeError("GITHUB_TOKEN не задан — определите его в .env или окружении")
+    token = os.environ.get("OPENROUTER_API_KEY")  # читаем ключ OpenRouter из окружения
+    if not token:  # нет ключа — сообщаем понятной ошибкой (ловится в analyze_event)
+        raise RuntimeError("OPENROUTER_API_KEY не задан — определите его в .env или окружении")
     return OpenAI(
         base_url=BASE_URL,
         api_key=token,
         http_client=httpx.Client(trust_env=False),  # игнорировать ALL_PROXY/*_PROXY из окружения
         timeout=REQUEST_TIMEOUT,  # таймаут на запрос — поток не зависнет на сетевой проблеме
+        # OpenRouter учитывает эти заголовки для статистики/рейтинга приложений (необязательно):
+        default_headers={"HTTP-Referer": "http://localhost", "X-Title": "Smart Observer"},
     )
 
 
@@ -108,7 +114,7 @@ def analyze_event(detection_id: int) -> None:
 
 class LLMAnalyzer(threading.Thread):  # ОДИН фоновый поток-потребитель detection_id (вместо «поток на событие»)
     """Берёт detection_id из очереди и обрабатывает их по одному, с троттлингом между запросами,
-    чтобы не превышать лимиты GitHub Models. По шаблону AIDetector/DBLogger (stop()/_stop_event)."""
+    чтобы не превышать лимиты OpenRouter. По шаблону AIDetector/DBLogger (stop()/_stop_event)."""
 
     def __init__(
         self,
