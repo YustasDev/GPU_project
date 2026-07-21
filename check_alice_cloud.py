@@ -29,8 +29,7 @@ def analyze_image_with_alice():
         api_key=YANDEX_API_KEY,
         base_url="https://ai.api.cloud.yandex.net/v1",
         project=YANDEX_FOLDER_ID,  # Передаётся как project (это folder_id)
-        # trust_env=False — игнорировать ALL_PROXY/*_PROXY из окружения. Иначе httpx подхватывает
-        # залежавшийся от VPN socks://127.0.0.1:2080 и падает: "Unknown scheme for proxy URL".
+        # trust_env=False — игнорировать ALL_PROXY/*_PROXY из окружения.
         # Тот же приём применён в core/analyzer.py.
         http_client=httpx.Client(trust_env=False),
     )

@@ -74,7 +74,7 @@ if __name__ == "__main__":
     client = OpenAI(
         base_url=BASE_URL,
         api_key=API_KEY,
-        http_client=httpx.Client(trust_env=False),  # игнорировать ALL_PROXY/*_PROXY (обход VPN socks://)
+        http_client=httpx.Client(trust_env=False),  # игнорировать ALL_PROXY/*_PROXY
         timeout=REQUEST_TIMEOUT,                     # не подвисаем молча навсегда
     )
 
