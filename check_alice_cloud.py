@@ -1,7 +1,5 @@
-import base64
-import httpx
+import base64, os, httpx
 from openai import OpenAI
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
