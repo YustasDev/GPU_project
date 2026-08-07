@@ -16,14 +16,16 @@ from db.models import Detection  # ORM-модель таблицы detections
 logger = logging.getLogger(__name__)  # логгер модуля (core.analyzer) — пишет в общие logs/*.log
 
 # === Константы (вынесены, чтобы не хардкодить по месту) ===
-BASE_URL = "https://models.github.ai/inference"  # эндпоинт GitHub Models (OpenAI-совместимый)
-# Активная vision-модель из каталога GitHub Models. Альтернатива (Meta):
-# MODEL = "meta/Llama-3.2-90B-Vision-Instruct"  # бесплатная мультимодальная модель Meta
-MODEL = "openai/gpt-4.1"  # vision-модель OpenAI; для мягких free-лимитов можно "openai/gpt-4.1-mini"
+BASE_URL = "https://routerai.ru/api/v1"  # эндпоинт RouterAI (OpenAI-совместимый)
+# Активная vision-модель. ВАЖНО: она обязана принимать изображения (быть мультимодальной) —
+# текстовой модели картинка вернётся ошибкой. Сменить модель = поменять ровно эту одну строку.
+MODEL = "google/gemma-4-26b-a4b-it"  # мультимодальная Gemma 4 — та же, что в тест-скрипте gemma4_vision.py
 REQUEST_TIMEOUT = 30.0  # сек: ограничиваем сетевой запрос, чтобы фоновый поток не висел вечно
+TEMPERATURE = 2.0  # «температура»: чем выше, тем разнообразнее формулировки (как в gemma4_vision.py)
+TOP_P = 0.95  # ядерная выборка: слова берутся из верхушки, накопившей 95% вероятности
 MAX_TOKENS = 200  # потолок длины ответа — бережёт квоту и не даёт переполнить колонку
 MAX_DESCRIPTION_LEN = 500  # длина колонки Detection.description (VARCHAR(500))
-ANALYSIS_THROTTLE_SEC = 6.0  # минимальный интервал между запросами к LLM (free-tier GitHub Models ~10 RPM → ~1 в 6 c)
+ANALYSIS_THROTTLE_SEC = 3.0  # минимальный интервал между запросами к LLM (~20 в минуту) — бережём лимиты провайдера
 
 PROMPT_TEXT = (
     "Ты — строгий охранник системы видеонаблюдения. "
@@ -36,11 +38,11 @@ PROMPT_TEXT = (
 @lru_cache(maxsize=1)
 def _get_client() -> OpenAI:
     """Ленивое создание клиента: при ПЕРВОМ вызове, а не на импорте модуля.
-    Так отсутствие GITHUB_TOKEN не уронит весь пайплайн (модуль импортируется в main.py)."""
+    Так отсутствие ROUTER_API_KEY не уронит весь пайплайн (модуль импортируется в main.py)."""
     load_dotenv()  # подхватываем .env, если есть
-    token = os.environ.get("GITHUB_TOKEN")  # читаем токен из окружения
-    if not token:  # нет токена — сообщаем понятной ошибкой (ловится в analyze_event)
-        raise RuntimeError("GITHUB_TOKEN не задан — определите его в .env или окружении")
+    token = os.environ.get("ROUTER_API_KEY")  # читаем ключ RouterAI из окружения
+    if not token:  # нет ключа — сообщаем понятной ошибкой (ловится в analyze_event)
+        raise RuntimeError("ROUTER_API_KEY не задан — определите его в .env или окружении")
     return OpenAI(
         base_url=BASE_URL,
         api_key=token,
@@ -85,6 +87,8 @@ def analyze_event(detection_id: int) -> None:
         try:
             response = client.chat.completions.create(
                 model=MODEL,
+                temperature=TEMPERATURE,  # те же параметры сэмплинга, что и в тест-скрипте gemma4_vision.py
+                top_p=TOP_P,  # ядерная выборка — отсекаем «хвост» маловероятных слов
                 max_tokens=MAX_TOKENS,  # ограничиваем длину ответа
                 messages=[
                     {
@@ -108,7 +112,7 @@ def analyze_event(detection_id: int) -> None:
 
 class LLMAnalyzer(threading.Thread):  # ОДИН фоновый поток-потребитель detection_id (вместо «поток на событие»)
     """Берёт detection_id из очереди и обрабатывает их по одному, с троттлингом между запросами,
-    чтобы не превышать лимиты GitHub Models. По шаблону AIDetector/DBLogger (stop()/_stop_event)."""
+    чтобы не превышать лимиты провайдера. По шаблону AIDetector/DBLogger (stop()/_stop_event)."""
 
     def __init__(
         self,
