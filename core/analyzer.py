@@ -21,7 +21,7 @@ BASE_URL = "https://routerai.ru/api/v1"  # эндпоинт RouterAI (OpenAI-с�
 # текстовой модели картинка вернётся ошибкой. Сменить модель = поменять ровно эту одну строку.
 MODEL = "google/gemma-4-26b-a4b-it"  # мультимодальная Gemma 4 — та же, что в тест-скрипте gemma4_vision.py
 REQUEST_TIMEOUT = 30.0  # сек: ограничиваем сетевой запрос, чтобы фоновый поток не висел вечно
-TEMPERATURE = 2.0  # «температура»: чем выше, тем разнообразнее формулировки (как в gemma4_vision.py)
+TEMPERATURE = 1.5  # «температура»: чем выше, тем разнообразнее формулировки; ниже, чем в gemma4_vision.py
 TOP_P = 0.95  # ядерная выборка: слова берутся из верхушки, накопившей 95% вероятности
 MAX_TOKENS = 500  # потолок длины ответа — бережёт квоту и не даёт переполнить колонку
 MAX_DESCRIPTION_LEN = 500  # длина колонки Detection.description (VARCHAR(500))
@@ -87,7 +87,7 @@ def analyze_event(detection_id: int) -> None:
         try:
             response = client.chat.completions.create(
                 model=MODEL,
-                temperature=TEMPERATURE,  # те же параметры сэмплинга, что и в тест-скрипте gemma4_vision.py
+                temperature=TEMPERATURE,  # разнообразие формулировок; ниже, чем в gemma4_vision.py — описания идут в журнал
                 top_p=TOP_P,  # ядерная выборка — отсекаем «хвост» маловероятных слов
                 max_tokens=MAX_TOKENS,  # ограничиваем длину ответа
                 messages=[
