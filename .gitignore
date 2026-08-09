@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# Local data and weights
+data/saved_events/
+
+# Logs (info/warning/error файлы от configure_logging)
+logs/
+
+# Local env
+.env
+.venv/
+
+
