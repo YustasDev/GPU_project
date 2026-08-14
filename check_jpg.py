@@ -7,7 +7,8 @@ import pandas as pd
 if __name__ == "__main__":
     # прочитаем файл с растровым изображением и преобразуем его в оттенки серого
     # (чёрно-белое изображение). Результат сохраним в переменную image как двухмерный массив NumPy (высота и ширина).
-    image = cv2.imread('test1.jpg', cv2.IMREAD_GRAYSCALE)
+    image_path = "./test1.jpg"
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     
     if image is not None:
 
@@ -65,4 +66,4 @@ if __name__ == "__main__":
         #cv2.waitKey(0)
         #cv2.destroyAllWindows()
     else:
-        print("Ошибка: не удалось загрузить 'test1.jpg'")
+        print("Ошибка: не удалось загрузить: ", image_path)
