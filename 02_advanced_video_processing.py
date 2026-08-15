@@ -21,30 +21,40 @@ def signal_handler(signum, frame):
 def process_video_fast():
     print(f"[INFO] Запуск захвата видео из источника: {INPUT_SOURCE}")
 
-    # Устанавливаем обработчик сигнала
+    # Устанавливаем обработчик сигнала. Важно: после этой строки Python больше НЕ
+    # возбуждает KeyboardInterrupt по Ctrl+C — сигнал целиком уходит в наш обработчик,
+    # поэтому ловить прерывание еще и через "except KeyboardInterrupt" не нужно
     signal.signal(signal.SIGINT, signal_handler)
+
+    # Живой источник (веб-камера или сетевой поток) сам никогда не заканчивается.
+    # Отличаем его один раз и дальше пользуемся готовым ответом
+    is_live_source = isinstance(INPUT_SOURCE, int) or (
+        isinstance(INPUT_SOURCE, str) and "://" in INPUT_SOURCE)
 
     # Запускаем многопоточный ридер
     fvs = FileVideoStream(INPUT_SOURCE).start()
 
-    # Даем потоку 1 секунду на "прогрев" камеры и заполнение буфера
-    time.sleep(1.0)
+    # Даем камере секунду на "прогрев" и наполнение буфера. Видеофайл в прогреве
+    # не нуждается — он готов отдавать кадры сразу
+    if is_live_source:
+        time.sleep(1.0)
 
-    # Получаем метаданные видео напрямую из оригинального объекта stream
-    width = int(fvs.stream.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(fvs.stream.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = fvs.stream.get(cv2.CAP_PROP_FPS)
-
-    # ХАК ДЛЯ ВЕБ-КАМЕР: Часто камеры возвращают fps = 0 или NaN.
-    # Если это произошло, принудительно ставим стандартные 30 кадров в секунду.
-    if fps == 0 or fps is None or fps != fps:
-        fps = 30.0
+    # Метаданные берем у самого ридера: он прочитал их один раз при открытии
+    # источника и уже применил поправку для камер, которые врут про FPS
+    width, height, fps = fvs.width, fvs.height, fvs.fps
 
     print(f"[INFO] Разрешение потока: {width}x{height} @ {fps} FPS.")
 
     # Настраиваем "Писатель" (VideoWriter)
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(OUTPUT_VIDEO, fourcc, fps, (width, height))
+
+    # Проверяем, что писатель действительно открылся. Без этой проверки программа
+    # честно отработает до конца и отчитается об успехе, а на диске останется
+    # пустой файл — самая обидная разновидность ошибки
+    if not out.isOpened():
+        fvs.stop()
+        raise IOError(f"Не удалось открыть файл для записи: {OUTPUT_VIDEO!r}")
 
     frame_count = 0
     start_time = time.time()
@@ -65,7 +75,15 @@ def process_video_fast():
             # Если в буфере есть готовые кадры, забираем их
             if fvs.more():
                 frame = fvs.read()
+                if frame is None:  # очередь опустела между more() и read()
+                    continue
                 frame_count += 1
+
+                # Камера иногда отдает кадр не того размера, который сама же заявила
+                # в своих свойствах. VideoWriter в этом случае молча не пишет ничего,
+                # поэтому приводим кадр к размеру, с которым открыт писатель
+                if frame.shape[1] != width or frame.shape[0] != height:
+                    frame = cv2.resize(frame, (width, height))
 
                 # --- НАЧАЛО БЛОКА ОБРАБОТКИ ---
 
@@ -76,13 +94,17 @@ def process_video_fast():
                     fps_start_time = time.time()
                     # Выводим прогресс в консоль
                     print(f"\r[ПРОГРЕСС] Обработано: {frame_count} кадров | Скорость: {current_fps:.1f} FPS", end="")
+                elif frame_count < 30:
+                    # Первые 30 кадров еще не набрались. Показываем среднюю скорость
+                    # с начала работы, иначе на коротком ролике в кадр попадет "0.0"
+                    current_fps = frame_count / (time.time() - start_time)
 
                 # Рисуем зеленый счетчик FPS в левом верхнем углу (как в играх)
                 cv2.putText(frame, f"Proc FPS: {current_fps:.1f}", (20, 50),
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
 
-                # Рисуем красный индикатор LIVE REC, если источник - веб-камера (число)
-                if isinstance(INPUT_SOURCE, int):
+                # Рисуем красный индикатор LIVE REC, если источник живой (камера или поток)
+                if is_live_source:
                     cv2.putText(frame, "LIVE REC", (width - 170, 50),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
                     cv2.circle(frame, (width - 190, 40), 10, (0, 0, 255), -1)  # Красная точка
@@ -92,19 +114,16 @@ def process_video_fast():
                 # Сохраняем обработанный кадр в файл
                 out.write(frame)
 
-                # ЗАЩИТА ОТ БЕСКОНЕЧНОГО ЦИКЛА ДЛЯ ВЕБ-КАМЕРЫ
-                # Так как веб-камера не имеет конца, мы запишем только первые 300 кадров (10 секунд)
-                if isinstance(INPUT_SOURCE, int) and frame_count >= 300:
-                    print("\n[INFO] Записано 300 кадров с веб-камеры. Остановка.")
+                # ЗАЩИТА ОТ БЕСКОНЕЧНОГО ЦИКЛА ДЛЯ ЖИВОГО ИСТОЧНИКА
+                # Ни камера, ни сетевой поток не заканчиваются сами,
+                # поэтому запишем только первые 300 кадров (10 секунд)
+                if is_live_source and frame_count >= 300:
+                    print("\n[INFO] Записано 300 кадров с живого источника. Остановка.")
                     break
             else:
                 # Если очередь пуста (процессор работает быстрее, чем камера/диск отдает кадры),
                 # усыпляем процесс на 1 миллисекунду, чтобы не грузить CPU на 100%.
                 time.sleep(0.001)
-
-    except KeyboardInterrupt:
-        # Обработка нажатия Ctrl+C пользователем
-        print("\n[ВНИМАНИЕ] Процесс прерван пользователем.")
 
     finally:
         # 4. Освобождаем ресурсы (выполнится в любом случае, даже при ошибке)
