@@ -10,6 +10,11 @@ from videostream import FileVideoStream  # Импортируем наш кла�
 INPUT_SOURCE = 0  # Попробуйте изменить на "traffic.mp4", чтобы увидеть разницу
 OUTPUT_VIDEO = "output_fast.mp4"
 
+# НАСТРОЙКА НАДПИСЕЙ ПОВЕРХ КАДРА
+FONT = cv2.FONT_HERSHEY_SIMPLEX  # шрифт надписей
+FONT_SCALE = 0.6  # размер надписей: 1.0 — крупно, 0.6 — компактно
+FONT_THICKNESS = 2  # толщина линий шрифта
+
 stop_event = threading.Event()   # определяем флаг прерывания процесса
 
 def signal_handler(signum, frame):
@@ -56,6 +61,10 @@ def process_video_fast():
         fvs.stop()
         raise IOError(f"Не удалось открыть файл для записи: {OUTPUT_VIDEO!r}")
 
+    # Ширину надписи LIVE REC вычисляем один раз: так индикатор аккуратно встанет
+    # в правый верхний угол при любом разрешении кадра
+    (live_width, _), _ = cv2.getTextSize("LIVE REC", FONT, FONT_SCALE, FONT_THICKNESS)
+
     frame_count = 0
     start_time = time.time()
 
@@ -69,7 +78,7 @@ def process_video_fast():
         while not stop_event.is_set():   # проверяем, установлен ли флаг прерывания
             # Если очередь пуста, а поток завершил чтение (конец файла) — выходим
             if not fvs.more() and fvs.stopped:
-                print("\n[INFO] Видеофайл закончился.")
+                print("[INFO] Видеофайл закончился.")
                 break
 
             # Если в буфере есть готовые кадры, забираем их
@@ -92,22 +101,24 @@ def process_video_fast():
                     end_time = time.time()
                     current_fps = 30 / (end_time - fps_start_time)
                     fps_start_time = time.time()
-                    # Выводим прогресс в консоль
-                    print(f"\r[ПРОГРЕСС] Обработано: {frame_count} кадров | Скорость: {current_fps:.1f} FPS", end="")
+                    # Выводим прогресс в консоль отдельной строкой: так по окончании
+                    # работы виден весь график скорости, а не только последний замер
+                    print(f"[ПРОГРЕСС] Обработано: {frame_count:>4} кадров | Скорость: {current_fps:.1f} FPS")
                 elif frame_count < 30:
                     # Первые 30 кадров еще не набрались. Показываем среднюю скорость
                     # с начала работы, иначе на коротком ролике в кадр попадет "0.0"
                     current_fps = frame_count / (time.time() - start_time)
 
                 # Рисуем зеленый счетчик FPS в левом верхнем углу (как в играх)
-                cv2.putText(frame, f"Proc FPS: {current_fps:.1f}", (20, 50),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+                cv2.putText(frame, f"Proc FPS: {current_fps:.1f}", (20, 35),
+                            FONT, FONT_SCALE, (0, 255, 0), FONT_THICKNESS, cv2.LINE_AA)
 
                 # Рисуем красный индикатор LIVE REC, если источник живой (камера или поток)
                 if is_live_source:
-                    cv2.putText(frame, "LIVE REC", (width - 170, 50),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
-                    cv2.circle(frame, (width - 190, 40), 10, (0, 0, 255), -1)  # Красная точка
+                    cv2.putText(frame, "LIVE REC", (width - live_width - 20, 35),
+                                FONT, FONT_SCALE, (0, 0, 255), FONT_THICKNESS, cv2.LINE_AA)
+                    # Красная точка слева от надписи
+                    cv2.circle(frame, (width - live_width - 35, 30), 6, (0, 0, 255), -1)
 
                 # --- КОНЕЦ БЛОКА ОБРАБОТКИ ---
 
@@ -118,7 +129,7 @@ def process_video_fast():
                 # Ни камера, ни сетевой поток не заканчиваются сами,
                 # поэтому запишем только первые 300 кадров (10 секунд)
                 if is_live_source and frame_count >= 300:
-                    print("\n[INFO] Записано 300 кадров с живого источника. Остановка.")
+                    print("[INFO] Записано 300 кадров с живого источника. Остановка.")
                     break
             else:
                 # Если очередь пуста (процессор работает быстрее, чем камера/диск отдает кадры),
@@ -127,7 +138,7 @@ def process_video_fast():
 
     finally:
         # 4. Освобождаем ресурсы (выполнится в любом случае, даже при ошибке)
-        print("\n[INFO] Очистка памяти и закрытие файлов...")
+        print("[INFO] Очистка памяти и закрытие файлов...")
         fvs.stop()
         out.release()
 
