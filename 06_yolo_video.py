@@ -1,5 +1,4 @@
 import cv2
-import math
 import time
 from ultralytics import YOLO
 from videostream import FileVideoStream

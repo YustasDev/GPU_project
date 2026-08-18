@@ -1,5 +1,4 @@
 import cv2
-import numpy as np
 
 # Цвета в формате BGR (Blue, Green, Red)
 COLOR_RED = (0, 0, 255)
