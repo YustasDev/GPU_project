@@ -14,7 +14,7 @@ if __name__ == "__main__":
     # 2. Выполняем инференс на картинке
     # device="cuda:0" прямо указывает нейросети работать на видеокарте
     print("Запускаем инференс...")
-    results = model("test_street.jpg", device="cuda:0")
+    results = model("test_street.jpg", device = "cuda:0" if torch.cuda.is_available() else "cpu")
 
     # 3. Смотрим, что получилось
     # Библиотека Ultralytics умеет сама рисовать результаты для быстрой проверки!
