@@ -19,11 +19,10 @@ def main():
     print("[INFO] Запуск видеопотока...")
     fvs = FileVideoStream(INPUT_SOURCE)
 
-    # Читаем свойства видео ДО запуска фонового потока, чтобы избежать race condition
-    width = int(fvs.stream.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(fvs.stream.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = fvs.stream.get(cv2.CAP_PROP_FPS)
-    if fps == 0 or fps is None or math.isnan(fps): fps = 30.0
+    # Берем готовые метаданные прямо из объекта
+    width = fvs.width
+    height = fvs.height
+    fps = fvs.fps
 
     fvs.start()
     time.sleep(1.0)  # Прогрев камеры
