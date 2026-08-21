@@ -11,7 +11,13 @@ DATABASE_URL = "postgresql+psycopg2://myuser:mypassword@localhost:5432/mydatabas
 engine = create_engine(DATABASE_URL, echo=True)
 
 # SessionLocal - это фабрика сессий. Сессия - это "разговор" с базой данных (транзакция)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    expire_on_commit=False,
+    bind=engine,
+)
+
 
 # Базовый класс, от которого мы будем наследовать все наши таблицы
 class Base(DeclarativeBase):
