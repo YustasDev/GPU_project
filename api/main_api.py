@@ -60,7 +60,7 @@ def get_db():
 # JSON-эндпоинт для машинных клиентов (curl, скрипты, fetch с фронта).
 # По умолчанию отдаёт 10 свежих событий; limit меняется через query string: /api/events?limit=50.
 @app.get("/api/events", response_model=list[EventOut])
-async def get_events_json(limit: int = 10, db: Session = Depends(get_db)):
+def get_events_json(limit: int = 10, db: Session = Depends(get_db)):
     # SELECT * FROM detections ORDER BY timestamp DESC LIMIT :limit — новейшие сверху
     events = db.query(Detection).order_by(Detection.timestamp.desc()).limit(limit).all()
     return events  # FastAPI прогонит каждый ORM-объект через EventOut (from_attributes) и отдаст JSON
@@ -69,7 +69,7 @@ async def get_events_json(limit: int = 10, db: Session = Depends(get_db)):
 # Главная страница дашборда — HTML с Bootstrap-сеткой карточек.
 # Лимит 20 захардкожен; фильтры/пагинация добавятся позже, если понадобятся.
 @app.get("/")
-async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
+def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     events = db.query(Detection).order_by(Detection.timestamp.desc()).limit(20).all()  # тот же запрос, что и в /api/events, но limit=20
     # Современная сигнатура Starlette: request передаём ПЕРВЫМ позиционным аргументом, а в контексте
     # оставляем только свои данные. Старая форма TemplateResponse(name, {"request": ...}) — deprecated.
@@ -80,5 +80,5 @@ async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
 # карточки рисует JavaScript, опрашивая /api/events каждые 3 секунды. Поэтому здесь не нужны
 # ни запрос к БД, ни передача events в контекст — данные подтянет сам фронтенд.
 @app.get("/live")
-async def serve_live_dashboard(request: Request):
+def serve_live_dashboard(request: Request):
     return templates.TemplateResponse(request, "index_with_js.html", {})
