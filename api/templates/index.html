@@ -30,14 +30,25 @@
         {% for event in events %}
         <div class="col">
             <div class="card h-100 event-card shadow-sm">
-                {# event.image_path в БД хранится как абсолютный путь.
-                   Берём только basename и склеиваем с /images/, который замаунтен в api/main_api.py
-                   на SAVED_EVENTS_DIR. Так шаблон работает и с абсолютным, и с относительным путём. #}
-                {% set filename = event.image_path.split('/')[-1] %}
-                {% set image_url = "/images/" + filename %}
+                {# image_path — колонка nullable: core/logger.py пишет туда None, если
+                   cv2.imwrite не смог сохранить кадр. Поэтому сначала проверяем наличие пути,
+                   и только потом разбираем его — иначе шаблон падает на None.split(). #}
+                {% if event.image_path %}
+                    {# В БД лежит абсолютный путь. Берём только имя файла и склеиваем с /images/,
+                       который замаунтен в api/main_api.py на SAVED_EVENTS_DIR. Так шаблон работает
+                       и с абсолютным, и с относительным путём. #}
+                    {% set filename = event.image_path.split('/')[-1] %}
+                    {% set image_url = "/images/" + filename %}
 
-                <!-- object-fit: cover обрезает картинку под 250px без искажения пропорций -->
-                <img src="{{ image_url }}" class="card-img-top" alt="Скриншот события" style="height: 250px; object-fit: cover;">
+                    <!-- object-fit: cover обрезает картинку под 250px без искажения пропорций -->
+                    <img src="{{ image_url }}" class="card-img-top" alt="Скриншот события" style="height: 250px; object-fit: cover;">
+                {% else %}
+                    {# Событие есть, а снимка нет: показываем заглушку вместо битой картинки #}
+                    <div class="card-img-top d-flex align-items-center justify-content-center bg-secondary-subtle text-muted"
+                         style="height: 250px;">
+                        <span>📷 Снимок не сохранён</span>
+                    </div>
+                {% endif %}
 
                 <!-- confidence в БД хранится как float 0..1 (см. db/models.py); умножаем на 100 для процентов, round(1) — один знак после запятой -->
                 <span class="badge bg-success conf-badge">{{ (event.confidence * 100) | round(1) }}%</span>
