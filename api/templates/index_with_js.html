@@ -91,6 +91,20 @@
                     imgTag = `<img src="/images/${filename}" class="card-img-top" alt="Скриншот" style="height: 250px; object-fit: cover;">`;
                 }
 
+                // Описание от LLM: core/analyzer.py пишет его в поле description асинхронно, с троттлингом.
+                // Пока анализ не завершён — description приходит null/пустым, показываем «анализирует».
+                // В отличие от серверной index.html, здесь статус сам сменится текстом при следующем
+                // опросе /api/events (каждые 3 сек) — перезагружать страницу (F5) не нужно.
+                let descriptionHtml;
+                if (event.description) {
+                    descriptionHtml = `
+                                <p class="card-text mt-2" style="font-size: 0.9em; background: #eef2f3; padding: 8px; border-radius: 5px; border-left: 3px solid #0d6efd;">
+                                    <strong>🤖 Отчет ИИ:</strong><br>${escapeHtml(event.description)}
+                                </p>`;  // текст экранируем через escapeHtml — как и остальные строковые поля (защита от XSS)
+                } else {
+                    descriptionHtml = `<p class="card-text text-muted mt-2 small"><em>⏳ ИИ анализирует изображение...</em></p>`;
+                }
+
                 const cardHtml = `
                     <div class="col">
                         <div class="card h-100 event-card shadow-sm">
@@ -104,6 +118,7 @@
                                 <p class="card-text text-secondary" style="font-size: 0.85em;">
                                     BBox: ${bbox}
                                 </p>
+                                ${descriptionHtml}
                             </div>
                         </div>
                     </div>

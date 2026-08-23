@@ -35,6 +35,7 @@ class EventOut(BaseModel):
     confidence: float  # уверенность нейросети, 0..1
     bounding_box: str  # координаты рамки строкой "[x1, y1, x2, y2]"
     image_path: str | None = None  # путь к JPEG; в модели nullable, поэтому Optional
+    description: str | None = None  # текст-отчёт от LLM (core/analyzer.py заполняет асинхронно); None, пока анализ не завершён
 
 
 app = FastAPI(title="Smart Observer API")  # экземпляр приложения; uvicorn находит его по имени `app`

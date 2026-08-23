@@ -2,12 +2,16 @@
 # Версии совпадают с протестированным окружением ai_project — сборка образа
 # воспроизводима: и сегодня, и через год установятся ровно эти версии.
 
+# Индекс PyTorch: сборок с локальной меткой +cu121 на PyPI нет, поэтому его надо
+# подключить явно. Установка: pip install -r requirements.txt
+# (для uv добавьте флаг --index-strategy unsafe-best-match).
+--extra-index-url https://download.pytorch.org/whl/cu121
+
 # YOLO-детекция
 ultralytics==8.4.18
 
 # torch/torchvision — сборка под CUDA 12.1 (локальная метка +cu121). Эти пакеты
-# берутся НЕ с PyPI, а с индекса PyTorch — он подключён в Dockerfile
-# (--extra-index-url https://download.pytorch.org/whl/cu121).
+# берутся НЕ с PyPI, а с индекса PyTorch — он подключён строкой --extra-index-url выше.
 torch==2.5.1+cu121
 torchvision==0.20.1+cu121
 
@@ -20,6 +24,7 @@ numpy==2.3.5
 # База данных
 SQLAlchemy==2.0.47
 psycopg2-binary==2.9.11   # драйвер PostgreSQL «в бинарнике»: не требует gcc/libpq-dev при сборке
+alembic==1.18.4           # миграции схемы: добавление колонки description (см. §11.7)
 
 # Веб-дашборд
 fastapi==0.133.1
