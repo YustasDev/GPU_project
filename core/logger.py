@@ -41,7 +41,7 @@ class DBLogger(threading.Thread):  # поток-консумер событий:
         self._stop_event.set()  # выставляем событие — цикл выйдет на ближайшей проверке
 
     def _save_image(self, frame, object_class: str) -> str | None:  # запись кадра на диск
-        timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")  # UTC + микросекунды
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         filename = f"event_{object_class}_{timestamp_str}.jpg"  # вид: event_person_20260508_120033_123456.jpg
         filepath = os.path.join(self.save_dir, filename)  # полный путь к файлу
         if not cv2.imwrite(filepath, frame):  # imwrite возвращает False (не исключение) при сбое
