@@ -24,7 +24,13 @@ if not DATABASE_URL:  # переменной нет — честно падае�
 engine = create_engine(DATABASE_URL, echo=False)
 
 # SessionLocal - это фабрика сессий. Сессия - это "разговор" с базой данных (транзакция)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    expire_on_commit=False,  # после commit() объект не обесценивается: record.id остаётся
+                             # в памяти и не вызывает повторный SELECT той же строки
+    bind=engine,
+)
 
 # Базовый класс, от которого мы будем наследовать все наши таблицы
 class Base(DeclarativeBase):

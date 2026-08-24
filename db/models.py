@@ -10,7 +10,7 @@ class Detection(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
 
     # Время события. По умолчанию ставим текущее время сервера
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
 
     # Что мы нашли (например, "person", "car")
     object_class: Mapped[str] = mapped_column(String(50), index=True)
