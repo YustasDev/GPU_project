@@ -30,7 +30,7 @@ class EventOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)  # читать атрибуты ORM-объекта, а не только dict
 
     id: int  # первичный ключ строки detections
-    timestamp: datetime  # время события (UTC); FastAPI сериализует в ISO-строку
+    timestamp: datetime  # время события
     object_class: str  # имя класса: "person" / "car"
     confidence: float  # уверенность нейросети, 0..1
     bounding_box: str  # координаты рамки строкой "[x1, y1, x2, y2]"

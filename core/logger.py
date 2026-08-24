@@ -3,7 +3,7 @@ import logging
 import os
 import queue
 import threading
-from datetime import datetime, timezone
+from datetime import datetime
 from queue import Queue
 
 import cv2

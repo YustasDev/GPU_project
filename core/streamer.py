@@ -63,7 +63,7 @@ class VideoStreamer(threading.Thread):  # поток, читающий кадр�
         fps = cap.get(cv2.CAP_PROP_FPS)  # частота кадров из метаданных файла
         if not fps or fps <= 0:  # некоторые контейнеры FPS не сообщают → тогда используем дефолтное значение 30 кадров/с
             fps = 30.0
-        return 1.0 / fps  # секунд на один кадр
+        return 1.0 / fps  # время на один кадр
 
     def run(self) -> None:  # основной метод потока, вызывается из start()
         logger.info("Подключение к источнику: %s", self.source)  # стартовое сообщение
