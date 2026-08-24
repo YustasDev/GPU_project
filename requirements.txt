@@ -20,6 +20,7 @@ numpy==2.3.5
 # База данных
 SQLAlchemy==2.0.47
 psycopg2-binary==2.9.11   # драйвер PostgreSQL «в бинарнике»: не требует gcc/libpq-dev при сборке
+alembic==1.18.4           # миграции схемы: добавление колонки description (см. §11.7)
 
 # Веб-дашборд
 fastapi==0.133.1
