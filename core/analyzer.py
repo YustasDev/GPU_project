@@ -25,9 +25,9 @@ BASE_URL = "https://openrouter.ai/api/v1"  # эндпоинт OpenRouter (OpenAI
 MODEL = "google/gemma-4-26b-a4b-it:free"  # бесплатная vision-модель, чистый русский на нашем контенте
 # Альтернатива (тоже бесплатная vision): "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
 REQUEST_TIMEOUT = 30.0  # сек: ограничиваем сетевой запрос, чтобы фоновый поток не висел вечно
-MAX_TOKENS = 200  # потолок длины ответа — бережёт квоту и не даёт переполнить колонку
+MAX_TOKENS = 500  # потолок длины ответа — бережёт квоту и не даёт переполнить колонку
 MAX_DESCRIPTION_LEN = 500  # длина колонки Detection.description (VARCHAR(500))
-ANALYSIS_THROTTLE_SEC = 6.0  # минимальный интервал между запросами к LLM (бесплатный OpenRouter ~20 RPM → с запасом ~1 в 6 c)
+ANALYSIS_THROTTLE_SEC = 3.0  # минимальный интервал между запросами к LLM (бесплатный OpenRouter ~20 RPM → с запасом ~1 в 6 c)
 
 PROMPT_TEXT = (
     "Ты — строгий охранник системы видеонаблюдения. "
