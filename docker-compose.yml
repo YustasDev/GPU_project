@@ -27,8 +27,10 @@ services:
       - ./init:/docker-entrypoint-initdb.d:ro
     
     # Проверка здоровья (health check)
+    # $$ — экранированный $: переменную развернёт shell ВНУТРИ контейнера (из его окружения),
+    # а не Compose. Так проверка всегда идёт под теми же логином и базой, что заданы в .env.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U myuser -d mydatabase"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s      # Проверка каждые 10 секунд
       timeout: 5s        # Таймаут проверки
       retries: 5         # Количество попыток перед пометкой "unhealthy"
