@@ -87,7 +87,7 @@ def analyze_event(detection_id: int) -> None:
         try:
             response = client.chat.completions.create(
                 model=MODEL,
-                temperature=TEMPERATURE,  # те же параметры сэмплинга, что и в тест-скрипте gemma4_vision.py
+                temperature=TEMPERATURE,  # разнообразие формулировок; ниже, чем в gemma4_vision.py — описания идут в журнал
                 top_p=TOP_P,  # ядерная выборка — отсекаем «хвост» маловероятных слов
                 max_tokens=MAX_TOKENS,  # ограничиваем длину ответа
                 messages=[
