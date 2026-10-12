@@ -43,7 +43,7 @@ def get_db():
 # JSON-эндпоинт для машинных клиентов (curl, скрипты, fetch с фронта).
 # По умолчанию отдаёт 10 свежих событий; limit меняется через query string: /api/events?limit=50.
 @app.get("/api/events")
-async def get_events_json(limit: int = 10, db: Session = Depends(get_db)):
+def get_events_json(limit: int = 10, db: Session = Depends(get_db)):
     # SELECT * FROM detections ORDER BY timestamp DESC LIMIT :limit — новейшие сверху
     events = db.query(Detection).order_by(Detection.timestamp.desc()).limit(limit).all()
     return events  # FastAPI сам сериализует ORM-объекты в JSON через pydantic
@@ -52,7 +52,7 @@ async def get_events_json(limit: int = 10, db: Session = Depends(get_db)):
 # Главная страница дашборда — HTML с Bootstrap-сеткой карточек.
 # Лимит 20 захардкожен; фильтры/пагинация добавятся позже, если понадобятся.
 @app.get("/")
-async def serve_dashboard(request: Request, db: Session = Depends(get_db)):
+def serve_dashboard(request: Request, db: Session = Depends(get_db)):
     events = db.query(Detection).order_by(Detection.timestamp.desc()).limit(20).all()  # тот же запрос, что и в /api/events, но limit=20
     # request обязателен в context для Jinja2Templates — внутри шаблона он нужен Starlette для url_for и т.п.
     return templates.TemplateResponse("index.html", {"request": request, "events": events})
