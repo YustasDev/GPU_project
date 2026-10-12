@@ -5,13 +5,13 @@
 # КУДА он обращается. Ollama даёт OpenAI-совместимый API, поэтому клиент — тот же OpenAI SDK,
 # что и в analyzer.py. Здесь показаны два пути к облачной модели Ollama Cloud:
 #
-#   • ЛОКАЛЬНЫЙ ДЕМОН (по умолчанию):  base_url = http://localhost:11434/v1
+#   • ЛОКАЛЬНЫЙ ДЕМОН (USE_DIRECT_CLOUD = False):  base_url = http://localhost:11434/v1
 #       Демон Ollama проксирует :cloud-модель в облако. Авторизация — это разовый
 #       `ollama signin` НА СТОРОНЕ ДЕМОНА; клиентский код креды НЕ передаёт (api_key —
 #       заглушка "ollama", которую требует OpenAI SDK; демон сам подставит ваши облачные креды).
 #       Этот же base_url обслуживает и полностью локальную модель (см. MODEL) — код не меняется.
 #
-#   • ПРЯМОЙ, БЕЗ ДЕМОНА:  base_url = https://ollama.com/v1
+#   • ПРЯМОЙ, БЕЗ ДЕМОНА (USE_DIRECT_CLOUD = True — так стоит ниже):  base_url = https://ollama.com/v1
 #       Идем в облако Ollama напрямую. Демон/`ollama signin` не нужны; ключ OLLAMA_API_KEY
 #       читаем из .env — ровно также как analyzer.py читает OPENROUTER_API_KEY.
 #

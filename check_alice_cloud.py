@@ -6,7 +6,7 @@ load_dotenv()
 
 # --- НАСТРОЙКИ: замените на свои значения ---
 YANDEX_API_KEY = os.environ.get("YANDEX_API_KEY")       # API-ключ сервисного аккаунта
-YANDEX_FOLDER_ID = "b1gna7vvqq60g9jnf65l"               # Идентификатор каталога (folder_id)
+YANDEX_FOLDER_ID = "b1gna7vvqq75g9jnf65l"               # Идентификатор каталога (folder_id)
 IMAGE_PATH = "break open2.jpg"                          # Путь к файлу картинки на локальном ПК
 MODEL_NAME = "qwen3.6-35b-a3b/latest"
 PROMPT_TEXT = (

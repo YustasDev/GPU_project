@@ -16,8 +16,8 @@ from db.models import Detection  # ORM-модель таблицы detections
 logger = logging.getLogger(__name__)  # логгер модуля (core.analyzer) — пишет в общие logs/*.log
 
 # === Константы (вынесены, чтобы не хардкодить по месту) ===
-# LLM-провайдер — OpenRouter (OpenAI-совместимый агрегатор моделей). Прежний GitHub Models
-# выводится из эксплуатации 30.07.2026, поэтому LLM-слой переехал сюда.
+# LLM-провайдер — OpenRouter (OpenAI-совместимый агрегатор моделей). В главах 11–12 здесь был
+# RouterAI; переезд к другому провайдеру — это правка трёх мест: BASE_URL, MODEL и имени ключа.
 BASE_URL = "https://openrouter.ai/api/v1"  # эндпоинт OpenRouter (OpenAI-совместимый)
 # Активная vision-модель. ВАЖНО: она обязана поддерживать image-input (быть мультимодальной);
 # текстовой модели картинка вернёт 404 "No endpoints found that support image input".
@@ -25,9 +25,11 @@ BASE_URL = "https://openrouter.ai/api/v1"  # эндпоинт OpenRouter (OpenAI
 MODEL = "google/gemma-4-26b-a4b-it:free"  # бесплатная vision-модель, чистый русский на нашем контенте
 # Альтернатива (тоже бесплатная vision): "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
 REQUEST_TIMEOUT = 30.0  # сек: ограничиваем сетевой запрос, чтобы фоновый поток не висел вечно
+TEMPERATURE = 1.5  # «температура»: чем выше, тем разнообразнее формулировки
+TOP_P = 0.95  # ядерная выборка: слова берутся из верхушки, накопившей 95% вероятности
 MAX_TOKENS = 500  # потолок длины ответа — бережёт квоту и не даёт переполнить колонку
 MAX_DESCRIPTION_LEN = 500  # длина колонки Detection.description (VARCHAR(500))
-ANALYSIS_THROTTLE_SEC = 3.0  # минимальный интервал между запросами к LLM (бесплатный OpenRouter ~20 RPM → с запасом ~1 в 6 c)
+ANALYSIS_THROTTLE_SEC = 3.0  # минимальный интервал между запросами к LLM (бесплатный OpenRouter ~20 RPM ≈ 1 запрос в 3 с)
 
 PROMPT_TEXT = (
     "Ты — строгий охранник системы видеонаблюдения. "
@@ -50,8 +52,6 @@ def _get_client() -> OpenAI:
         api_key=token,
         http_client=httpx.Client(trust_env=False),  # игнорировать ALL_PROXY/*_PROXY из окружения
         timeout=REQUEST_TIMEOUT,  # таймаут на запрос — поток не зависнет на сетевой проблеме
-        # OpenRouter учитывает эти заголовки для статистики/рейтинга приложений (необязательно):
-        default_headers={"HTTP-Referer": "http://localhost", "X-Title": "Smart Observer"},
     )
 
 
@@ -91,6 +91,8 @@ def analyze_event(detection_id: int) -> None:
         try:
             response = client.chat.completions.create(
                 model=MODEL,
+                temperature=TEMPERATURE,  # разнообразие формулировок; ниже, чем в gemma4_vision.py — описания идут в журнал
+                top_p=TOP_P,  # ядерная выборка — отсекаем «хвост» маловероятных слов
                 max_tokens=MAX_TOKENS,  # ограничиваем длину ответа
                 messages=[
                     {
